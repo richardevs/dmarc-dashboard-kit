@@ -39,9 +39,23 @@ export async function handleEmail(
     const reportJSON = await getDMARCReportXML({ mimeType: attachment.mimeType, content });
     const rows = getReportRows(reportJSON);
 
-    await insertReport(env.DB, rows);
+    const reportId = rows[0]?.reportMetadataReportId ?? "unknown";
+    const domain = rows[0]?.policyPublishedDomain ?? "unknown";
+
+    try {
+      await insertReport(env.DB, rows);
+    } catch (insertErr) {
+      console.error("DMARC insert failed:", {
+        reportId,
+        domain,
+        recordCount: rows.length,
+        error: insertErr instanceof Error ? insertErr.message : insertErr,
+      });
+      throw insertErr;
+    }
   } catch (err) {
     console.error("DMARC email processing failed:", err instanceof Error ? err.message : err);
+    throw err;
   }
 }
 
@@ -107,13 +121,13 @@ function getReportRows(report: any): DmarcRecordRow[] {
 
       policyPublishedDomain: policyPublished.domain || "",
       policyPublishedADKIM:
-        AlignmentType[policyPublished.adkim as keyof typeof AlignmentType],
+        AlignmentType[policyPublished.adkim as keyof typeof AlignmentType] ?? AlignmentType.r,
       policyPublishedASPF:
-        AlignmentType[policyPublished.aspf as keyof typeof AlignmentType],
+        AlignmentType[policyPublished.aspf as keyof typeof AlignmentType] ?? AlignmentType.r,
       policyPublishedP:
-        DispositionType[policyPublished.p as keyof typeof DispositionType],
+        DispositionType[policyPublished.p as keyof typeof DispositionType] ?? DispositionType.none,
       policyPublishedSP:
-        DispositionType[policyPublished.sp as keyof typeof DispositionType],
+        DispositionType[policyPublished.sp as keyof typeof DispositionType] ?? DispositionType.none,
       policyPublishedPct: parseInt(policyPublished.pct) || 0,
 
       recordRowSourceIP: record.row.source_ip || "",
@@ -121,21 +135,21 @@ function getReportRows(report: any): DmarcRecordRow[] {
       recordRowPolicyEvaluatedDKIM:
         DMARCResultType[
           record.row.policy_evaluated.dkim as keyof typeof DMARCResultType
-        ],
+        ] ?? DMARCResultType.fail,
       recordRowPolicyEvaluatedSPF:
         DMARCResultType[
           record.row.policy_evaluated.spf as keyof typeof DMARCResultType
-        ],
+        ] ?? DMARCResultType.fail,
       recordRowPolicyEvaluatedDisposition:
         DispositionType[
           record.row.policy_evaluated
             .disposition as keyof typeof DispositionType
-        ],
+        ] ?? DispositionType.none,
       recordRowPolicyEvaluatedReasonType:
         PolicyOverrideType[
           record.row.policy_evaluated?.reason
             ?.type as keyof typeof PolicyOverrideType
-        ],
+        ] ?? null,
       recordIdentifiersEnvelopeTo: record.identifiers.envelope_to || "",
       recordIdentifiersHeaderFrom: record.identifiers.header_from || "",
     });

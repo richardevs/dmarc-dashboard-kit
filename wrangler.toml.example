@@ -9,3 +9,10 @@ directory = "dashboard/dist"
 binding = "DB"
 database_name = "dmarc-reports"
 database_id = ""  # auto-filled by deploy.sh
+
+# [observability]
+# [observability.logs]
+# enabled = true
+# invocation_logs = true
+# [observability.traces]
+# enabled = false

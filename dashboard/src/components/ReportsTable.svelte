@@ -31,6 +31,7 @@
   }
 
   function failures(r: ReportListItem): string[] {
+    if (r.total_count === 0) return ["No data"];
     const tags: string[] = [];
     if (r.spf_fail_count > 0) tags.push("SPF");
     if (r.dkim_fail_count > 0) tags.push("DKIM");
@@ -106,7 +107,9 @@
             <td class="nowrap">{formatDate(r.date_range_begin)} – {formatDate(r.date_range_end)}</td>
             <td><span class={disp.cls}>{disp.label}</span></td>
             <td>
-              {#if fails.length > 0}
+              {#if fails.length === 1 && fails[0] === "No data"}
+                <span class="text-amber">{"\u26A0"} No data</span>
+              {:else if fails.length > 0}
                 <span class="text-red">{"\u2717"} {fails.join(", ")}</span>
               {:else}
                 <span class="text-green">{"\u2713"} OK</span>
@@ -182,7 +185,7 @@
   .nowrap { white-space: nowrap; }
   .empty { text-align: center; color: var(--muted, #64748b); }
   .text-red { color: #dc2626; }
-  .text-amber { color: #ca8a04; }
+  .text-amber { color: #d97706; }
   .text-muted { color: var(--muted, #64748b); }
   .text-green { color: #16a34a; }
   .pagination {

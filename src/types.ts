@@ -21,7 +21,7 @@ export type DmarcRecordRow = {
   recordRowPolicyEvaluatedDKIM: DMARCResultType;
   recordRowPolicyEvaluatedSPF: DMARCResultType;
   recordRowPolicyEvaluatedDisposition: DispositionType;
-  recordRowPolicyEvaluatedReasonType: PolicyOverrideType;
+  recordRowPolicyEvaluatedReasonType: PolicyOverrideType | null;
   recordIdentifiersEnvelopeTo: string;
   recordIdentifiersHeaderFrom: string;
 };

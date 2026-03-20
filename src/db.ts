@@ -10,8 +10,7 @@ export async function insertReport(
 
   const first = rows[0];
 
-  // Insert report metadata (idempotent via ON CONFLICT)
-  await db
+  const reportStmt = db
     .prepare(
       `INSERT INTO reports (report_id, org_name, date_range_begin, date_range_end, error, domain, adkim, aspf, policy_p, policy_sp, policy_pct)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -29,17 +28,18 @@ export async function insertReport(
       first.policyPublishedP,
       first.policyPublishedSP,
       first.policyPublishedPct
-    )
-    .run();
+    );
 
-  // Insert record rows in batches (D1 limit: 100 statements per batch)
+  // Insert report + record rows in batches (D1 limit: 100 statements per batch).
+  // The report INSERT is included in the first batch so it's atomic with record_rows.
   for (let i = 0; i < rows.length; i += BATCH_LIMIT) {
     const chunk = rows.slice(i, i + BATCH_LIMIT);
     const stmts = chunk.map((row) =>
       db
         .prepare(
           `INSERT INTO record_rows (report_id, source_ip, count, disposition, dkim_result, spf_result, reason_type, envelope_to, header_from, date_range_begin)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT DO NOTHING`
         )
         .bind(
           row.reportMetadataReportId,
@@ -54,6 +54,7 @@ export async function insertReport(
           row.reportMetadataDateRangeBegin
         )
     );
+    if (i === 0) stmts.unshift(reportStmt);
     await db.batch(stmts);
   }
 }
