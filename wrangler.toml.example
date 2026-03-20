@@ -1,0 +1,11 @@
+name = "dmarc-dashboard-kit"
+main = "src/index.ts"
+compatibility_date = "2024-12-30"
+
+[assets]
+directory = "dashboard/dist"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "dmarc-reports"
+database_id = ""  # auto-filled by deploy.sh

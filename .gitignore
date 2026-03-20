@@ -1,0 +1,11 @@
+node_modules/
+.wrangler/
+dist/
+.dev.vars
+.env
+wrangler.toml
+dashboard/node_modules/
+dashboard/dist/
+scripts/
+.vscode/
+.claude/
