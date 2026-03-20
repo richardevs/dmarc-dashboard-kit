@@ -8,6 +8,26 @@ async function fetchJSON<T>(path: string, params: Record<string, string> = {}): 
   return res.json();
 }
 
+const pageCache = new Map<string, any>();
+
+async function cachedFetchJSON<T>(path: string, params: Record<string, string> = {}): Promise<T> {
+  const url = new URL(path, window.location.origin);
+  for (const [k, v] of Object.entries(params)) {
+    if (v) url.searchParams.set(k, v);
+  }
+  const key = url.toString();
+  if (pageCache.has(key)) return pageCache.get(key);
+  const res = await fetch(key);
+  if (!res.ok) throw new Error(`API error: ${res.status}`);
+  const data = await res.json();
+  pageCache.set(key, data);
+  return data;
+}
+
+export function clearPageCache() {
+  pageCache.clear();
+}
+
 export interface Summary {
   total_messages: number;
   pass_count: number;
@@ -77,11 +97,22 @@ export function getDomainAuth(days: string): Promise<DomainAuth[]> {
   return fetchJSON("/api/domain-auth", { days });
 }
 
+export interface SenderList {
+  data: TopSender[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
 export function getTopSenders(days: string, limit = "10", domain?: string): Promise<TopSender[]> {
   return fetchJSON("/api/top-senders", { days, limit, domain: domain || "" });
 }
 
+export function getAllSenders(days: string, page = "1", pageSize = "20", domain?: string, sort?: string, dir?: string): Promise<SenderList> {
+  return cachedFetchJSON("/api/all-senders", { days, page, pageSize, domain: domain || "", sort: sort || "", dir: dir || "" });
+}
+
 export function getReports(page = "1", pageSize = "20", domain?: string, sort?: string, dir?: string): Promise<ReportList> {
-  return fetchJSON("/api/reports", { page, pageSize, domain: domain || "", sort: sort || "", dir: dir || "" });
+  return cachedFetchJSON("/api/reports", { page, pageSize, domain: domain || "", sort: sort || "", dir: dir || "" });
 }
 

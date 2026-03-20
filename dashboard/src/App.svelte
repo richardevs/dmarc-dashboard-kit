@@ -7,6 +7,7 @@
     getTopSenders,
     getDomainAuth,
     getReports,
+    clearPageCache,
     type Summary,
     type TimeSeriesPoint,
     type TopSender,
@@ -40,6 +41,7 @@
   let error: string = $state("");
 
   async function loadData() {
+    clearPageCache();
     error = "";
     reportSort = "";
     reportDir = "";
@@ -115,7 +117,7 @@
   {/if}
 
   <div class="two-col">
-    <TopSendersTable senders={topSenders} />
+    <TopSendersTable senders={topSenders} days={selectedDays} domain={selectedDomain} />
     <DomainAuthTable data={domainAuth} onDomainClick={(d) => { selectedDomain = d; loadData(); }} {maskDomain} />
   </div>
 

@@ -109,8 +109,10 @@
             <td>
               {#if fails.length === 1 && fails[0] === "No data"}
                 <span class="text-amber">{"\u26A0"} No data</span>
-              {:else if fails.length > 0}
-                <span class="text-red">{"\u2717"} {fails.join(", ")}</span>
+              {:else if fails.length === 2}
+                <span class="text-red">{"\u2717"} BOTH</span>
+              {:else if fails.length === 1}
+                <span class="text-amber">{"\u26A0"} {fails[0]}</span>
               {:else}
                 <span class="text-green">{"\u2713"} OK</span>
               {/if}

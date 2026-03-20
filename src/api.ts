@@ -4,6 +4,7 @@ import {
   getSummary,
   getTimeSeries,
   getTopSenders,
+  getAllSenders,
   getDomainAuth,
   getReports,
   getReportDetail,
@@ -73,6 +74,15 @@ async function route(
     return json(await getTopSenders(env.DB, days, limit, domain));
   }
 
+  // GET /api/all-senders?days=30&page=1&pageSize=20&domain=&sort=&dir=
+  if (path === "/api/all-senders") {
+    const page = parseInt(params.get("page") || "1") || 1;
+    const pageSize = parseInt(params.get("pageSize") || "20") || 20;
+    const sort = params.get("sort") || undefined;
+    const dir = params.get("dir") || undefined;
+    return json(await getAllSenders(env.DB, days, page, pageSize, domain, sort, dir));
+  }
+
   // GET /api/reports?page=1&pageSize=20&domain=&sort=&dir=
   if (path === "/api/reports") {
     const page = parseInt(params.get("page") || "1") || 1;
@@ -82,7 +92,7 @@ async function route(
     return json(await getReports(env.DB, page, pageSize, domain, sort, dir));
   }
 
-  // GET /api/reports/:reportId
+  // GET /api/reports/:reportId — not called by the dashboard; available for future detail views or external consumers
   const reportMatch = path.match(/^\/api\/reports\/(.+)$/);
   if (reportMatch) {
     const detail = await getReportDetail(env.DB, decodeURIComponent(reportMatch[1]));

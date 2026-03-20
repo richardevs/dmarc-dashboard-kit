@@ -5,8 +5,8 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "bash deploy.sh",
-    "migrate": "wrangler d1 execute dmarc-reports --file=migrations/0001_init.sql --remote",
-    "migrate:local": "wrangler d1 execute dmarc-reports --file=migrations/0001_init.sql --local"
+    "migrate": "for f in $(ls migrations/*.sql | sort); do wrangler d1 execute dmarc-reports --file=$f --remote; done",
+    "migrate:local": "for f in $(ls migrations/*.sql | sort); do wrangler d1 execute dmarc-reports --file=$f --local; done"
   },
   "dependencies": {
     "fast-xml-parser": "^5.5.7",

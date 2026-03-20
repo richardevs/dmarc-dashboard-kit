@@ -79,8 +79,8 @@ export async function getSummary(db: D1Database, days: number, domain?: string) 
     .prepare(
       `SELECT
         COALESCE(SUM(rr.count), 0) AS total_messages,
-        COALESCE(SUM(CASE WHEN rr.dkim_result = 1 AND rr.spf_result = 1 THEN rr.count ELSE 0 END), 0) AS pass_count,
-        COALESCE(SUM(CASE WHEN rr.dkim_result = 0 OR rr.spf_result = 0 THEN rr.count ELSE 0 END), 0) AS fail_count,
+        COALESCE(SUM(CASE WHEN rr.disposition = 0 THEN rr.count ELSE 0 END), 0) AS pass_count,
+        COALESCE(SUM(CASE WHEN rr.disposition != 0 THEN rr.count ELSE 0 END), 0) AS fail_count,
         COUNT(DISTINCT rr.source_ip) AS unique_sources,
         COUNT(DISTINCT r.report_id) AS total_reports
       FROM record_rows rr
@@ -103,8 +103,8 @@ export async function getTimeSeries(
     .prepare(
       `SELECT
         date(rr.date_range_begin, 'unixepoch') AS date,
-        COALESCE(SUM(CASE WHEN rr.dkim_result = 1 AND rr.spf_result = 1 THEN rr.count ELSE 0 END), 0) AS pass_count,
-        COALESCE(SUM(CASE WHEN rr.dkim_result = 0 OR rr.spf_result = 0 THEN rr.count ELSE 0 END), 0) AS fail_count,
+        COALESCE(SUM(CASE WHEN rr.disposition = 0 THEN rr.count ELSE 0 END), 0) AS pass_count,
+        COALESCE(SUM(CASE WHEN rr.disposition != 0 THEN rr.count ELSE 0 END), 0) AS fail_count,
         COALESCE(SUM(rr.count), 0) AS total
       FROM record_rows rr
       JOIN reports r ON r.report_id = rr.report_id
@@ -130,8 +130,8 @@ export async function getTopSenders(
       `SELECT
         rr.source_ip,
         SUM(rr.count) AS total_count,
-        SUM(CASE WHEN rr.dkim_result = 1 AND rr.spf_result = 1 THEN rr.count ELSE 0 END) AS pass_count,
-        SUM(CASE WHEN rr.dkim_result = 0 OR rr.spf_result = 0 THEN rr.count ELSE 0 END) AS fail_count
+        SUM(CASE WHEN rr.disposition = 0 THEN rr.count ELSE 0 END) AS pass_count,
+        SUM(CASE WHEN rr.disposition != 0 THEN rr.count ELSE 0 END) AS fail_count
       FROM record_rows rr
       JOIN reports r ON r.report_id = rr.report_id
       WHERE rr.date_range_begin >= unixepoch('now', '-' || ? || ' days')
@@ -143,6 +143,68 @@ export async function getTopSenders(
     .bind(days, ...params, limit)
     .all();
   return result.results;
+}
+
+const SENDER_SORT_COLUMNS: Record<string, string> = {
+  source_ip: "rr.source_ip",
+  total_count: "total_count",
+  pass_count: "pass_count",
+  fail_count: "fail_count",
+  rate: "CAST(SUM(CASE WHEN rr.disposition = 0 THEN rr.count ELSE 0 END) AS REAL) / MAX(SUM(rr.count), 1)",
+};
+
+export async function getAllSenders(
+  db: D1Database,
+  days: number,
+  page: number,
+  pageSize: number,
+  domain?: string,
+  sort?: string,
+  dir?: string
+) {
+  const { clause, params } = domainFilter(domain);
+  const offset = (page - 1) * pageSize;
+  const sortCol = sort && SENDER_SORT_COLUMNS[sort] ? SENDER_SORT_COLUMNS[sort] : "total_count";
+  const sortDir = dir === "asc" ? "ASC" : "DESC";
+
+  const countResult = await db
+    .prepare(
+      `SELECT COUNT(*) AS total FROM (
+        SELECT rr.source_ip
+        FROM record_rows rr
+        JOIN reports r ON r.report_id = rr.report_id
+        WHERE rr.date_range_begin >= unixepoch('now', '-' || ? || ' days')
+        ${clause}
+        GROUP BY rr.source_ip
+      )`
+    )
+    .bind(days, ...params)
+    .first<{ total: number }>();
+
+  const result = await db
+    .prepare(
+      `SELECT
+        rr.source_ip,
+        SUM(rr.count) AS total_count,
+        SUM(CASE WHEN rr.disposition = 0 THEN rr.count ELSE 0 END) AS pass_count,
+        SUM(CASE WHEN rr.disposition != 0 THEN rr.count ELSE 0 END) AS fail_count
+      FROM record_rows rr
+      JOIN reports r ON r.report_id = rr.report_id
+      WHERE rr.date_range_begin >= unixepoch('now', '-' || ? || ' days')
+      ${clause}
+      GROUP BY rr.source_ip
+      ORDER BY ${sortCol} ${sortDir}
+      LIMIT ? OFFSET ?`
+    )
+    .bind(days, ...params, pageSize, offset)
+    .all();
+
+  return {
+    data: result.results,
+    total: countResult?.total ?? 0,
+    page,
+    pageSize,
+  };
 }
 
 export async function getDomainAuth(db: D1Database, days: number) {

@@ -83,7 +83,9 @@ echo "  wrangler.toml ready with database_id=${DB_ID}"
 # --- Step 3: Run migrations ---
 echo ""
 echo "[3/7] Running D1 migrations..."
-npx wrangler d1 execute "$DB_NAME" --file=migrations/0001_init.sql --remote --yes
+for f in $(ls migrations/*.sql | sort); do
+  npx wrangler d1 execute "$DB_NAME" --file="$f" --remote --yes
+done
 echo "  Done"
 
 # --- Step 4: Build dashboard ---
