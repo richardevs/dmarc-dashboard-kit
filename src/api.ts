@@ -42,6 +42,7 @@ async function route(
 ): Promise<Response> {
   const days = parseInt(params.get("days") || "30") || 30;
   const domain = params.get("domain") || undefined;
+  const date = params.get("date") || undefined;
 
   // GET /api/health
   if (path === "/api/health") {
@@ -53,9 +54,9 @@ async function route(
     return json(await getDomains(env.DB));
   }
 
-  // GET /api/summary?days=30&domain=
+  // GET /api/summary?days=30&domain=&date=
   if (path === "/api/summary") {
-    return json(await getSummary(env.DB, days, domain));
+    return json(await getSummary(env.DB, days, domain, date));
   }
 
   // GET /api/timeseries?days=30&domain=
@@ -63,33 +64,33 @@ async function route(
     return json(await getTimeSeries(env.DB, days, domain));
   }
 
-  // GET /api/domain-auth?days=30
+  // GET /api/domain-auth?days=30&date=
   if (path === "/api/domain-auth") {
-    return json(await getDomainAuth(env.DB, days));
+    return json(await getDomainAuth(env.DB, days, date));
   }
 
-  // GET /api/top-senders?days=30&limit=10&domain=
+  // GET /api/top-senders?days=30&limit=10&domain=&date=
   if (path === "/api/top-senders") {
     const limit = parseInt(params.get("limit") || "10") || 10;
-    return json(await getTopSenders(env.DB, days, limit, domain));
+    return json(await getTopSenders(env.DB, days, limit, domain, date));
   }
 
-  // GET /api/all-senders?days=30&page=1&pageSize=20&domain=&sort=&dir=
+  // GET /api/all-senders?days=30&page=1&pageSize=20&domain=&sort=&dir=&date=
   if (path === "/api/all-senders") {
     const page = parseInt(params.get("page") || "1") || 1;
     const pageSize = parseInt(params.get("pageSize") || "20") || 20;
     const sort = params.get("sort") || undefined;
     const dir = params.get("dir") || undefined;
-    return json(await getAllSenders(env.DB, days, page, pageSize, domain, sort, dir));
+    return json(await getAllSenders(env.DB, days, page, pageSize, domain, sort, dir, date));
   }
 
-  // GET /api/reports?page=1&pageSize=20&domain=&sort=&dir=
+  // GET /api/reports?page=1&pageSize=20&domain=&sort=&dir=&date=
   if (path === "/api/reports") {
     const page = parseInt(params.get("page") || "1") || 1;
     const pageSize = parseInt(params.get("pageSize") || "20") || 20;
     const sort = params.get("sort") || undefined;
     const dir = params.get("dir") || undefined;
-    return json(await getReports(env.DB, page, pageSize, domain, sort, dir));
+    return json(await getReports(env.DB, page, pageSize, domain, sort, dir, date));
   }
 
   // GET /api/reports/:reportId — not called by the dashboard; available for future detail views or external consumers

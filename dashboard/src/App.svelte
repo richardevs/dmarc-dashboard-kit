@@ -38,10 +38,12 @@
   let reports: ReportList | null = $state(null);
   let reportSort: string = $state("");
   let reportDir: string = $state("");
+  let selectedDate: string = $state("");
   let error: string = $state("");
 
   async function loadData() {
     clearPageCache();
+    selectedDate = "";
     error = "";
     reportSort = "";
     reportDir = "";
@@ -64,16 +66,68 @@
     }
   }
 
+  async function loadDateData(date: string) {
+    reportSort = "";
+    reportDir = "";
+    try {
+      const domain = selectedDomain || undefined;
+      const [s, senders, auth, reps] = await Promise.all([
+        getSummary(selectedDays, domain, date),
+        getTopSenders(selectedDays, "10", domain, date),
+        getDomainAuth(selectedDays, date),
+        getReports("1", "20", domain, undefined, undefined, date),
+      ]);
+      summary = s;
+      topSenders = senders;
+      domainAuth = auth;
+      reports = reps;
+    } catch (e) {
+      error = e instanceof Error ? e.message : "Failed to load data";
+    }
+  }
+
+  async function revertData() {
+    reportSort = "";
+    reportDir = "";
+    try {
+      const domain = selectedDomain || undefined;
+      const [s, ts, senders, auth, reps] = await Promise.all([
+        getSummary(selectedDays, domain),
+        getTimeSeries(selectedDays, domain),
+        getTopSenders(selectedDays, "10", domain),
+        getDomainAuth(selectedDays),
+        getReports("1", "20", domain),
+      ]);
+      summary = s;
+      timeSeries = ts;
+      topSenders = senders;
+      domainAuth = auth;
+      reports = reps;
+    } catch (e) {
+      error = e instanceof Error ? e.message : "Failed to load data";
+    }
+  }
+
+  function handleDateClick(date: string) {
+    if (!date) {
+      selectedDate = "";
+      revertData();
+    } else {
+      selectedDate = date;
+      loadDateData(date);
+    }
+  }
+
   async function handlePageChange(page: number) {
     const domain = selectedDomain || undefined;
-    reports = await getReports(String(page), "20", domain, reportSort || undefined, reportDir || undefined);
+    reports = await getReports(String(page), "20", domain, reportSort || undefined, reportDir || undefined, selectedDate || undefined);
   }
 
   async function handleSortChange(sort: string, dir: string) {
     reportSort = sort;
     reportDir = dir;
     const domain = selectedDomain || undefined;
-    reports = await getReports("1", "20", domain, sort || undefined, dir || undefined);
+    reports = await getReports("1", "20", domain, sort || undefined, dir || undefined, selectedDate || undefined);
   }
 
   onMount(async () => {
@@ -113,11 +167,11 @@
   <SummaryCards {summary} />
 
   {#if timeSeries.length > 0}
-    <TimeSeriesChart data={timeSeries} />
+    <TimeSeriesChart data={timeSeries} {selectedDate} onDateClick={handleDateClick} />
   {/if}
 
   <div class="two-col">
-    <TopSendersTable senders={topSenders} days={selectedDays} domain={selectedDomain} />
+    <TopSendersTable senders={topSenders} days={selectedDays} domain={selectedDomain} date={selectedDate} />
     <DomainAuthTable data={domainAuth} onDomainClick={(d) => { selectedDomain = d; loadData(); }} {maskDomain} />
   </div>
 

@@ -66,6 +66,11 @@ function domainFilter(domain?: string): { clause: string; params: unknown[] } {
   return { clause: "AND r.domain = ?", params: [domain] };
 }
 
+function dateFilter(date?: string): { clause: string; params: unknown[] } {
+  if (!date) return { clause: "", params: [] };
+  return { clause: "AND date(rr.date_range_begin, 'unixepoch') = ?", params: [date] };
+}
+
 export async function getDomains(db: D1Database) {
   const result = await db
     .prepare("SELECT DISTINCT domain FROM reports ORDER BY domain")
@@ -73,8 +78,9 @@ export async function getDomains(db: D1Database) {
   return result.results.map((r) => r.domain);
 }
 
-export async function getSummary(db: D1Database, days: number, domain?: string) {
+export async function getSummary(db: D1Database, days: number, domain?: string, date?: string) {
   const { clause, params } = domainFilter(domain);
+  const { clause: dateClause, params: dateParams } = dateFilter(date);
   const result = await db
     .prepare(
       `SELECT
@@ -86,9 +92,10 @@ export async function getSummary(db: D1Database, days: number, domain?: string) 
       FROM record_rows rr
       JOIN reports r ON r.report_id = rr.report_id
       WHERE rr.date_range_begin >= unixepoch('now', '-' || ? || ' days')
-      ${clause}`
+      ${clause}
+      ${dateClause}`
     )
-    .bind(days, ...params)
+    .bind(days, ...params, ...dateParams)
     .first();
   return result;
 }
@@ -122,9 +129,11 @@ export async function getTopSenders(
   db: D1Database,
   days: number,
   limit: number,
-  domain?: string
+  domain?: string,
+  date?: string
 ) {
   const { clause, params } = domainFilter(domain);
+  const { clause: dateClause, params: dateParams } = dateFilter(date);
   const result = await db
     .prepare(
       `SELECT
@@ -136,11 +145,12 @@ export async function getTopSenders(
       JOIN reports r ON r.report_id = rr.report_id
       WHERE rr.date_range_begin >= unixepoch('now', '-' || ? || ' days')
       ${clause}
+      ${dateClause}
       GROUP BY rr.source_ip
       ORDER BY total_count DESC
       LIMIT ?`
     )
-    .bind(days, ...params, limit)
+    .bind(days, ...params, ...dateParams, limit)
     .all();
   return result.results;
 }
@@ -160,9 +170,11 @@ export async function getAllSenders(
   pageSize: number,
   domain?: string,
   sort?: string,
-  dir?: string
+  dir?: string,
+  date?: string
 ) {
   const { clause, params } = domainFilter(domain);
+  const { clause: dateClause, params: dateParams } = dateFilter(date);
   const offset = (page - 1) * pageSize;
   const sortCol = sort && SENDER_SORT_COLUMNS[sort] ? SENDER_SORT_COLUMNS[sort] : "total_count";
   const sortDir = dir === "asc" ? "ASC" : "DESC";
@@ -175,10 +187,11 @@ export async function getAllSenders(
         JOIN reports r ON r.report_id = rr.report_id
         WHERE rr.date_range_begin >= unixepoch('now', '-' || ? || ' days')
         ${clause}
+        ${dateClause}
         GROUP BY rr.source_ip
       )`
     )
-    .bind(days, ...params)
+    .bind(days, ...params, ...dateParams)
     .first<{ total: number }>();
 
   const result = await db
@@ -192,11 +205,12 @@ export async function getAllSenders(
       JOIN reports r ON r.report_id = rr.report_id
       WHERE rr.date_range_begin >= unixepoch('now', '-' || ? || ' days')
       ${clause}
+      ${dateClause}
       GROUP BY rr.source_ip
       ORDER BY ${sortCol} ${sortDir}
       LIMIT ? OFFSET ?`
     )
-    .bind(days, ...params, pageSize, offset)
+    .bind(days, ...params, ...dateParams, pageSize, offset)
     .all();
 
   return {
@@ -207,7 +221,8 @@ export async function getAllSenders(
   };
 }
 
-export async function getDomainAuth(db: D1Database, days: number) {
+export async function getDomainAuth(db: D1Database, days: number, date?: string) {
+  const { clause: dateClause, params: dateParams } = dateFilter(date);
   const result = await db
     .prepare(
       `SELECT
@@ -219,10 +234,11 @@ export async function getDomainAuth(db: D1Database, days: number) {
       FROM record_rows rr
       JOIN reports r ON r.report_id = rr.report_id
       WHERE rr.date_range_begin >= unixepoch('now', '-' || ? || ' days')
+      ${dateClause}
       GROUP BY r.domain
       ORDER BY total DESC`
     )
-    .bind(days)
+    .bind(days, ...dateParams)
     .all();
   return result.results;
 }
@@ -240,20 +256,29 @@ export async function getReports(
   pageSize: number,
   domain?: string,
   sort?: string,
-  dir?: string
+  dir?: string,
+  date?: string
 ) {
   const offset = (page - 1) * pageSize;
-  const domainClause = domain ? "WHERE domain = ?" : "";
-  const domainParams = domain ? [domain] : [];
-
-  const countResult = await db
-    .prepare(`SELECT COUNT(*) AS total FROM reports ${domainClause}`)
-    .bind(...domainParams)
-    .first<{ total: number }>();
-
-  const whereClause = domain ? "WHERE r.domain = ?" : "";
   const sortCol = sort && REPORT_SORT_COLUMNS[sort] ? REPORT_SORT_COLUMNS[sort] : "r.date_range_end";
   const sortDir = dir === "asc" ? "ASC" : "DESC";
+
+  const conditions: string[] = [];
+  const filterParams: unknown[] = [];
+  if (domain) { conditions.push("domain = ?"); filterParams.push(domain); }
+  if (date) { conditions.push("date(date_range_begin, 'unixepoch') = ?"); filterParams.push(date); }
+  const countWhere = conditions.length > 0 ? "WHERE " + conditions.join(" AND ") : "";
+
+  const dataConditions: string[] = [];
+  const dataParams: unknown[] = [];
+  if (domain) { dataConditions.push("r.domain = ?"); dataParams.push(domain); }
+  if (date) { dataConditions.push("date(r.date_range_begin, 'unixepoch') = ?"); dataParams.push(date); }
+  const dataWhere = dataConditions.length > 0 ? "WHERE " + dataConditions.join(" AND ") : "";
+
+  const countResult = await db
+    .prepare(`SELECT COUNT(*) AS total FROM reports ${countWhere}`)
+    .bind(...filterParams)
+    .first<{ total: number }>();
 
   const result = await db
     .prepare(
@@ -266,12 +291,12 @@ export async function getReports(
         COALESCE(SUM(CASE WHEN rr.dkim_result = 0 THEN rr.count ELSE 0 END), 0) AS dkim_fail_count
       FROM reports r
       LEFT JOIN record_rows rr ON rr.report_id = r.report_id
-      ${whereClause}
+      ${dataWhere}
       GROUP BY r.report_id
       ORDER BY ${sortCol} ${sortDir}
       LIMIT ? OFFSET ?`
     )
-    .bind(...domainParams, pageSize, offset)
+    .bind(...dataParams, pageSize, offset)
     .all();
 
   return {

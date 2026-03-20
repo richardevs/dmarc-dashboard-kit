@@ -1,8 +1,8 @@
 <script lang="ts">
   import { untrack } from "svelte";
-  import { getAllSenders, clearPageCache, type TopSender, type SenderList } from "../lib/api";
+  import { getAllSenders, type TopSender, type SenderList } from "../lib/api";
 
-  let { senders, days, domain }: { senders: TopSender[]; days: string; domain: string } = $props();
+  let { senders, days, domain, date = "" }: { senders: TopSender[]; days: string; domain: string; date?: string } = $props();
 
   type Tab = "top" | "all";
   let activeTab: Tab = $state("top");
@@ -16,7 +16,7 @@
   async function fetchAllSenders(page = 1) {
     allLoading = true;
     try {
-      allSendersData = await getAllSenders(days, String(page), "20", domain || undefined, allSort || undefined, allDir || undefined);
+      allSendersData = await getAllSenders(days, String(page), "20", domain || undefined, allSort || undefined, allDir || undefined, date || undefined);
     } finally {
       allLoading = false;
     }
@@ -33,7 +33,7 @@
   $effect(() => {
     void days;
     void domain;
-    clearPageCache();
+    void date;
     allSendersData = null;
     allSort = "";
     allDir = "";
@@ -60,7 +60,6 @@
     } else {
       if (allSort === key) { allDir = allDir === "asc" ? "desc" : "asc"; }
       else { allSort = key; allDir = "desc"; }
-      clearPageCache();
       fetchAllSenders(1);
     }
   }
