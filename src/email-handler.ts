@@ -64,7 +64,7 @@ async function getDMARCReportXML(attachment: {
   content: ArrayBuffer;
 }) {
   let xml: string;
-  const xmlParser = new XMLParser();
+  const xmlParser = new XMLParser({ parseTagValue: false });
   const mimeEntry = mimeDb[attachment.mimeType];
   const extension = mimeEntry?.extensions?.[0] || "";
 

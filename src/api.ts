@@ -43,6 +43,7 @@ async function route(
   const days = parseInt(params.get("days") || "30") || 30;
   const domain = params.get("domain") || undefined;
   const date = params.get("date") || undefined;
+  const tz = parseInt(params.get("tz") || "0") || 0;
 
   // GET /api/health
   if (path === "/api/health") {
@@ -56,23 +57,23 @@ async function route(
 
   // GET /api/summary?days=30&domain=&date=
   if (path === "/api/summary") {
-    return json(await getSummary(env.DB, days, domain, date));
+    return json(await getSummary(env.DB, days, domain, date, tz));
   }
 
   // GET /api/timeseries?days=30&domain=
   if (path === "/api/timeseries") {
-    return json(await getTimeSeries(env.DB, days, domain));
+    return json(await getTimeSeries(env.DB, days, domain, tz));
   }
 
   // GET /api/domain-auth?days=30&date=
   if (path === "/api/domain-auth") {
-    return json(await getDomainAuth(env.DB, days, date));
+    return json(await getDomainAuth(env.DB, days, date, tz));
   }
 
   // GET /api/top-senders?days=30&limit=10&domain=&date=
   if (path === "/api/top-senders") {
     const limit = parseInt(params.get("limit") || "10") || 10;
-    return json(await getTopSenders(env.DB, days, limit, domain, date));
+    return json(await getTopSenders(env.DB, days, limit, domain, date, tz));
   }
 
   // GET /api/all-senders?days=30&page=1&pageSize=20&domain=&sort=&dir=&date=
@@ -81,7 +82,7 @@ async function route(
     const pageSize = parseInt(params.get("pageSize") || "20") || 20;
     const sort = params.get("sort") || undefined;
     const dir = params.get("dir") || undefined;
-    return json(await getAllSenders(env.DB, days, page, pageSize, domain, sort, dir, date));
+    return json(await getAllSenders(env.DB, days, page, pageSize, domain, sort, dir, date, tz));
   }
 
   // GET /api/reports?page=1&pageSize=20&domain=&sort=&dir=&date=
@@ -90,7 +91,7 @@ async function route(
     const pageSize = parseInt(params.get("pageSize") || "20") || 20;
     const sort = params.get("sort") || undefined;
     const dir = params.get("dir") || undefined;
-    return json(await getReports(env.DB, page, pageSize, domain, sort, dir, date));
+    return json(await getReports(env.DB, page, pageSize, domain, sort, dir, date, tz));
   }
 
   // GET /api/reports/:reportId — not called by the dashboard; available for future detail views or external consumers

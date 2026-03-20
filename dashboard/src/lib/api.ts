@@ -1,3 +1,5 @@
+const tzOffset = String(-new Date().getTimezoneOffset());
+
 async function fetchJSON<T>(path: string, params: Record<string, string> = {}): Promise<T> {
   const url = new URL(path, window.location.origin);
   for (const [k, v] of Object.entries(params)) {
@@ -86,15 +88,15 @@ export function getDomains(): Promise<string[]> {
 }
 
 export function getSummary(days: string, domain?: string, date?: string): Promise<Summary> {
-  return cachedFetchJSON("/api/summary", { days, domain: domain || "", date: date || "" });
+  return cachedFetchJSON("/api/summary", { days, domain: domain || "", date: date || "", tz: tzOffset });
 }
 
 export function getTimeSeries(days: string, domain?: string): Promise<TimeSeriesPoint[]> {
-  return cachedFetchJSON("/api/timeseries", { days, domain: domain || "" });
+  return cachedFetchJSON("/api/timeseries", { days, domain: domain || "", tz: tzOffset });
 }
 
 export function getDomainAuth(days: string, date?: string): Promise<DomainAuth[]> {
-  return cachedFetchJSON("/api/domain-auth", { days, date: date || "" });
+  return cachedFetchJSON("/api/domain-auth", { days, date: date || "", tz: tzOffset });
 }
 
 export interface SenderList {
@@ -105,14 +107,14 @@ export interface SenderList {
 }
 
 export function getTopSenders(days: string, limit = "10", domain?: string, date?: string): Promise<TopSender[]> {
-  return cachedFetchJSON("/api/top-senders", { days, limit, domain: domain || "", date: date || "" });
+  return cachedFetchJSON("/api/top-senders", { days, limit, domain: domain || "", date: date || "", tz: tzOffset });
 }
 
 export function getAllSenders(days: string, page = "1", pageSize = "20", domain?: string, sort?: string, dir?: string, date?: string): Promise<SenderList> {
-  return cachedFetchJSON("/api/all-senders", { days, page, pageSize, domain: domain || "", sort: sort || "", dir: dir || "", date: date || "" });
+  return cachedFetchJSON("/api/all-senders", { days, page, pageSize, domain: domain || "", sort: sort || "", dir: dir || "", date: date || "", tz: tzOffset });
 }
 
 export function getReports(page = "1", pageSize = "20", domain?: string, sort?: string, dir?: string, date?: string): Promise<ReportList> {
-  return cachedFetchJSON("/api/reports", { page, pageSize, domain: domain || "", sort: sort || "", dir: dir || "", date: date || "" });
+  return cachedFetchJSON("/api/reports", { page, pageSize, domain: domain || "", sort: sort || "", dir: dir || "", date: date || "", tz: tzOffset });
 }
 

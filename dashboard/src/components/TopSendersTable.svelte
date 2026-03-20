@@ -124,9 +124,7 @@
     </button>
   </div>
 
-  {#if activeTab === "all"}
-    <p class="note">Pass = DMARC disposition: none. Fail = quarantine or reject.</p>
-  {/if}
+  <p class="note">Pass = DMARC disposition: none. Fail = quarantine or reject.</p>
 
   {#if activeTab === "all" && allLoading && !allSendersData}
     <p class="loading">Loading...</p>

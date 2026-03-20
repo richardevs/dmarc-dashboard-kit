@@ -94,6 +94,7 @@
           <th class="sortable" onclick={() => toggleSort("date_range_begin")}>Date Range{sortIndicator("date_range_begin")}</th>
           <th class="sortable" onclick={() => toggleSort("disposition")}>Disposition{sortIndicator("disposition")}</th>
           <th>Failures</th>
+          <th class="records-header">Records</th>
           <th>Report ID</th>
         </tr>
       </thead>
@@ -117,11 +118,12 @@
                 <span class="text-green">{"\u2713"} OK</span>
               {/if}
             </td>
-            <td class="mono truncate" title={String(r.report_id)}>{String(r.report_id).slice(0, 16)}{String(r.report_id).length > 16 ? "\u2026" : ""}</td>
+            <td class="records">{r.total_count.toLocaleString()}</td>
+            <td class="mono truncate" title={String(r.report_id)}>{String(r.report_id)}</td>
           </tr>
         {/each}
         {#if reports.data.length === 0}
-          <tr><td colspan="6" class="empty">No reports yet</td></tr>
+          <tr><td colspan="7" class="empty">No reports yet</td></tr>
         {/if}
       </tbody>
     </table>
@@ -183,7 +185,9 @@
   .sortable:hover { opacity: 1; }
   tbody tr:nth-child(even) { background: var(--row-alt, #f1f5f9); }
   .mono { font-family: monospace; font-size: 0.8rem; }
-  .truncate { max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .truncate { max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .records { text-align: right; font-variant-numeric: tabular-nums; }
+  .records-header { text-align: right; }
   .nowrap { white-space: nowrap; }
   .empty { text-align: center; color: var(--muted, #64748b); }
   .text-red { color: #dc2626; }

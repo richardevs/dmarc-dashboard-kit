@@ -11,6 +11,13 @@
     onDateClick: (date: string) => void;
   } = $props();
 
+  const tzName = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const tzOffset = -new Date().getTimezoneOffset();
+  const tzSign = tzOffset >= 0 ? "+" : "-";
+  const tzHours = String(Math.floor(Math.abs(tzOffset) / 60)).padStart(2, "0");
+  const tzMins = String(Math.abs(tzOffset) % 60).padStart(2, "0");
+  const tzLabel = `${tzName} (UTC${tzSign}${tzHours}:${tzMins})`;
+
   let canvas: HTMLCanvasElement;
   let chart: Chart | null = null;
 
@@ -94,9 +101,12 @@
 <div class="chart-container">
   <div class="chart-header">
     <h3>Messages Over Time{selectedDate ? ` — ${selectedDate}` : ""}</h3>
-    {#if selectedDate}
-      <button class="revert-btn" onclick={() => onDateClick("")}>← All {"\u00A0"}</button>
-    {/if}
+    <div class="chart-header-right">
+      {#if selectedDate}
+        <button class="revert-btn" onclick={() => onDateClick("")}>← All {"\u00A0"}</button>
+      {/if}
+      <span class="tz-badge">{tzLabel}</span>
+    </div>
   </div>
   <div class="chart-wrapper">
     <canvas bind:this={canvas}></canvas>
@@ -131,6 +141,19 @@
     font-size: 0.8rem;
   }
   .revert-btn:hover { background: var(--border, #e2e8f0); }
+  .chart-header-right {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .tz-badge {
+    font-size: 0.75rem;
+    color: var(--text-muted, #64748b);
+    background: var(--border, #e2e8f0);
+    padding: 0.2rem 0.5rem;
+    border-radius: 4px;
+    white-space: nowrap;
+  }
   .chart-wrapper {
     position: relative;
     height: 300px;

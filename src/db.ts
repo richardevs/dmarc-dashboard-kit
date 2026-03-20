@@ -66,9 +66,10 @@ function domainFilter(domain?: string): { clause: string; params: unknown[] } {
   return { clause: "AND r.domain = ?", params: [domain] };
 }
 
-function dateFilter(date?: string): { clause: string; params: unknown[] } {
+function dateFilter(date?: string, tzMinutes = 0): { clause: string; params: unknown[] } {
   if (!date) return { clause: "", params: [] };
-  return { clause: "AND date(rr.date_range_begin, 'unixepoch') = ?", params: [date] };
+  const tzMod = `${tzMinutes >= 0 ? "+" : ""}${tzMinutes} minutes`;
+  return { clause: "AND date(rr.date_range_begin, 'unixepoch', ?) = ?", params: [tzMod, date] };
 }
 
 export async function getDomains(db: D1Database) {
@@ -78,9 +79,9 @@ export async function getDomains(db: D1Database) {
   return result.results.map((r) => r.domain);
 }
 
-export async function getSummary(db: D1Database, days: number, domain?: string, date?: string) {
+export async function getSummary(db: D1Database, days: number, domain?: string, date?: string, tzMinutes = 0) {
   const { clause, params } = domainFilter(domain);
-  const { clause: dateClause, params: dateParams } = dateFilter(date);
+  const { clause: dateClause, params: dateParams } = dateFilter(date, tzMinutes);
   const result = await db
     .prepare(
       `SELECT
@@ -103,13 +104,15 @@ export async function getSummary(db: D1Database, days: number, domain?: string, 
 export async function getTimeSeries(
   db: D1Database,
   days: number,
-  domain?: string
+  domain?: string,
+  tzMinutes = 0
 ) {
   const { clause, params } = domainFilter(domain);
+  const tzMod = `${tzMinutes >= 0 ? "+" : ""}${tzMinutes} minutes`;
   const result = await db
     .prepare(
       `SELECT
-        date(rr.date_range_begin, 'unixepoch') AS date,
+        date(rr.date_range_begin, 'unixepoch', ?) AS date,
         COALESCE(SUM(CASE WHEN rr.disposition = 0 THEN rr.count ELSE 0 END), 0) AS pass_count,
         COALESCE(SUM(CASE WHEN rr.disposition != 0 THEN rr.count ELSE 0 END), 0) AS fail_count,
         COALESCE(SUM(rr.count), 0) AS total
@@ -120,7 +123,7 @@ export async function getTimeSeries(
       GROUP BY date
       ORDER BY date`
     )
-    .bind(days, ...params)
+    .bind(tzMod, days, ...params)
     .all();
   return result.results;
 }
@@ -130,10 +133,11 @@ export async function getTopSenders(
   days: number,
   limit: number,
   domain?: string,
-  date?: string
+  date?: string,
+  tzMinutes = 0
 ) {
   const { clause, params } = domainFilter(domain);
-  const { clause: dateClause, params: dateParams } = dateFilter(date);
+  const { clause: dateClause, params: dateParams } = dateFilter(date, tzMinutes);
   const result = await db
     .prepare(
       `SELECT
@@ -171,10 +175,11 @@ export async function getAllSenders(
   domain?: string,
   sort?: string,
   dir?: string,
-  date?: string
+  date?: string,
+  tzMinutes = 0
 ) {
   const { clause, params } = domainFilter(domain);
-  const { clause: dateClause, params: dateParams } = dateFilter(date);
+  const { clause: dateClause, params: dateParams } = dateFilter(date, tzMinutes);
   const offset = (page - 1) * pageSize;
   const sortCol = sort && SENDER_SORT_COLUMNS[sort] ? SENDER_SORT_COLUMNS[sort] : "total_count";
   const sortDir = dir === "asc" ? "ASC" : "DESC";
@@ -221,8 +226,8 @@ export async function getAllSenders(
   };
 }
 
-export async function getDomainAuth(db: D1Database, days: number, date?: string) {
-  const { clause: dateClause, params: dateParams } = dateFilter(date);
+export async function getDomainAuth(db: D1Database, days: number, date?: string, tzMinutes = 0) {
+  const { clause: dateClause, params: dateParams } = dateFilter(date, tzMinutes);
   const result = await db
     .prepare(
       `SELECT
@@ -257,22 +262,24 @@ export async function getReports(
   domain?: string,
   sort?: string,
   dir?: string,
-  date?: string
+  date?: string,
+  tzMinutes = 0
 ) {
   const offset = (page - 1) * pageSize;
   const sortCol = sort && REPORT_SORT_COLUMNS[sort] ? REPORT_SORT_COLUMNS[sort] : "r.date_range_end";
   const sortDir = dir === "asc" ? "ASC" : "DESC";
+  const tzMod = `${tzMinutes >= 0 ? "+" : ""}${tzMinutes} minutes`;
 
   const conditions: string[] = [];
   const filterParams: unknown[] = [];
   if (domain) { conditions.push("domain = ?"); filterParams.push(domain); }
-  if (date) { conditions.push("date(date_range_begin, 'unixepoch') = ?"); filterParams.push(date); }
+  if (date) { conditions.push("date(date_range_begin, 'unixepoch', ?) = ?"); filterParams.push(tzMod, date); }
   const countWhere = conditions.length > 0 ? "WHERE " + conditions.join(" AND ") : "";
 
   const dataConditions: string[] = [];
   const dataParams: unknown[] = [];
   if (domain) { dataConditions.push("r.domain = ?"); dataParams.push(domain); }
-  if (date) { dataConditions.push("date(r.date_range_begin, 'unixepoch') = ?"); dataParams.push(date); }
+  if (date) { dataConditions.push("date(r.date_range_begin, 'unixepoch', ?) = ?"); dataParams.push(tzMod, date); }
   const dataWhere = dataConditions.length > 0 ? "WHERE " + dataConditions.join(" AND ") : "";
 
   const countResult = await db
