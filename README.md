@@ -26,6 +26,18 @@ A single Cloudflare Worker handles both DMARC report ingestion (via email) and s
   - Email Routing Rules: Edit
   - Access: Apps and Policies: Edit
 
+## Manual Prerequisites (One-Time)
+
+1. **Enable Email Routing** for your receiving domain:
+   > Cloudflare Dashboard → your domain → Email → Email Routing → Enable
+
+   > **Note:** Cloudflare Email Routing requires your receiving domain's MX records to point to Cloudflare's mail servers. If your domain is already using another email provider, you cannot use Cloudflare Email Routing on the same domain without replacing the current MX records, which would break your existing email setup. A cheap dedicated domain is the recommended solution.
+
+2. **Enable Cloudflare Access** on your account:
+   > Cloudflare Dashboard → Access → Get started
+
+Both are one-time settings best configured through the dashboard.
+
 ## Quick Start
 
 ```bash
@@ -61,21 +73,11 @@ Then run `pnpm run deploy` again.
 | 6 | Creates email routing rule + `_report._dmarc` DNS TXT records |
 | 7 | Creates Cloudflare Access application + policy |
 
-## Manual Prerequisites (One-Time)
-
-1. **Enable Email Routing** for your domain:
-   > Cloudflare Dashboard → your domain → Email → Email Routing → Enable
-
-2. **Enable Cloudflare Access** on your account:
-   > Cloudflare Dashboard → Access → Get started
-
-Both are one-time settings that cannot be automated via the API.
-
 ## Multi-Domain Support
 
 To monitor a domain, two DNS records are needed:
 
-**1. On the monitored domain** (the domain owner does this):
+**1. On the monitored domain**:
 ```
 _dmarc.otherdomain.com  TXT  "v=DMARC1; p=none; rua=mailto:dmarc@yourdomain.com"
 ```
