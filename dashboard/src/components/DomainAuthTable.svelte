@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { DomainAuth } from "../lib/api";
 
-  let { data, onDomainClick, maskDomain }: { data: DomainAuth[]; onDomainClick: (domain: string) => void; maskDomain: (name: string) => string } = $props();
+  let { data, onDomainClick, maskDomain, selectedDomain = "" }: { data: DomainAuth[]; onDomainClick: (domain: string) => void; maskDomain: (name: string) => string; selectedDomain?: string } = $props();
 
   function pct(part: number, total: number): string {
     if (total === 0) return "N/A";
@@ -34,6 +34,7 @@
 
 <div class="table-container">
   <h3>Domain Authentication Rates</h3>
+  <p class="note">DMARC requires either SPF or DKIM to pass - if either reaches 100%, all reported mail from that domain is passing authentication.</p>
   {#if data.length === 0}
     <p class="empty">No data</p>
   {:else}
@@ -51,7 +52,7 @@
         {#each data as row}
           {@const spfPct = pctNum(row.spf_pass, row.total)}
           {@const dkimPct = pctNum(row.dkim_pass, row.total)}
-          <tr>
+          <tr class:selected={row.domain === selectedDomain}>
             <td><button class="link" onclick={() => onDomainClick(row.domain)}>{maskDomain(row.domain)}</button></td>
             <td class="num">{row.total.toLocaleString()}</td>
             <td class="num">
@@ -82,7 +83,8 @@
     padding: 1.25rem;
     margin-bottom: 1.5rem;
   }
-  h3 { margin: 0 0 1rem 0; font-size: 1rem; }
+  h3 { margin: 0 0 0.25rem 0; font-size: 1rem; }
+  .note { margin: 0 0 0.75rem; font-size: 0.75rem; color: var(--muted, #64748b); }
   table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
   th, td {
     padding: 0.65rem 0.75rem;
@@ -96,7 +98,12 @@
     font-size: 0.8rem;
     border-bottom: 2px solid var(--border, #e2e8f0);
   }
+  tbody tr { height: 2.65rem; }
   tbody tr:nth-child(even) { background: var(--row-alt, #f1f5f9); }
+  tbody tr.selected { background: #fefce8; }
+  @media (prefers-color-scheme: dark) {
+    tbody tr.selected { background: #3a3520; }
+  }
   .num { text-align: right; font-variant-numeric: tabular-nums; }
   .empty { color: var(--muted, #64748b); font-size: 0.85rem; }
   .link {

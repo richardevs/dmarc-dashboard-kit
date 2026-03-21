@@ -23,7 +23,7 @@
 
   let domains: string[] = $state([]);
   let selectedDomain: string = $state("");
-  let selectedDays: string = $state("30");
+  let selectedDays: string = $state(localStorage.getItem("selected-days") ?? "30");
   const isMasked = new URLSearchParams(window.location.search).get("maskDomain") === "true";
   let domainMap: Map<string, string> = $derived(new Map(domains.map((d, i) => [d, `Domain ${i + 1}`])));
   function maskDomain(name: string): string {
@@ -152,7 +152,7 @@
       </select>
       <div class="btn-group">
         {#each ["7", "30", "90"] as d}
-          <button class:active={selectedDays === d} onclick={() => { selectedDays = d; loadData(); }}>
+          <button class:active={selectedDays === d} onclick={() => { selectedDays = d; localStorage.setItem("selected-days", d); loadData(); }}>
             {d}d
           </button>
         {/each}
@@ -172,7 +172,7 @@
 
   <div class="two-col">
     <TopSendersTable senders={topSenders} days={selectedDays} domain={selectedDomain} date={selectedDate} />
-    <DomainAuthTable data={domainAuth} onDomainClick={(d) => { selectedDomain = d; loadData(); }} {maskDomain} />
+    <DomainAuthTable data={domainAuth} onDomainClick={(d) => { selectedDomain = selectedDomain === d ? "" : d; loadData(); }} {maskDomain} {selectedDomain} />
   </div>
 
   <ReportsTable {reports} onPageChange={handlePageChange} onSortChange={handleSortChange} {maskDomain} />

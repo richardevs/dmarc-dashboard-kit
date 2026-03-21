@@ -24,21 +24,7 @@
     return new Date(ts * 1000).toLocaleDateString();
   }
 
-  function disposition(r: ReportListItem): { label: string; cls: string } {
-    if (r.reject_count > 0) return { label: "reject", cls: "text-red" };
-    if (r.quarantine_count > 0) return { label: "quarantine", cls: "text-amber" };
-    return { label: "none", cls: "text-muted" };
-  }
-
-  function failures(r: ReportListItem): string[] {
-    if (r.total_count === 0) return ["No data"];
-    const tags: string[] = [];
-    if (r.spf_fail_count > 0) tags.push("SPF");
-    if (r.dkim_fail_count > 0) tags.push("DKIM");
-    return tags;
-  }
-
-  type SortKey = "org_name" | "domain" | "date_range_begin" | "disposition";
+  type SortKey = "org_name" | "domain" | "date_range_begin";
   let sortKey: SortKey | null = $state(null);
   let sortAsc: boolean = $state(true);
 
@@ -92,38 +78,22 @@
           <th class="sortable" onclick={() => toggleSort("org_name")}>Org{sortIndicator("org_name")}</th>
           <th class="sortable" onclick={() => toggleSort("domain")}>Domain{sortIndicator("domain")}</th>
           <th class="sortable" onclick={() => toggleSort("date_range_begin")}>Date Range{sortIndicator("date_range_begin")}</th>
-          <th class="sortable" onclick={() => toggleSort("disposition")}>Disposition{sortIndicator("disposition")}</th>
-          <th>Failures</th>
           <th class="records-header">Records</th>
           <th>Report ID</th>
         </tr>
       </thead>
       <tbody>
         {#each reports.data as r}
-          {@const disp = disposition(r)}
-          {@const fails = failures(r)}
           <tr>
             <td>{r.org_name}</td>
             <td>{maskDomain(r.domain)}</td>
             <td class="nowrap">{formatDate(r.date_range_begin)} – {formatDate(r.date_range_end)}</td>
-            <td><span class={disp.cls}>{disp.label}</span></td>
-            <td>
-              {#if fails.length === 1 && fails[0] === "No data"}
-                <span class="text-amber">{"\u26A0"} No data</span>
-              {:else if fails.length === 2}
-                <span class="text-red">{"\u2717"} BOTH</span>
-              {:else if fails.length === 1}
-                <span class="text-amber">{"\u26A0"} {fails[0]}</span>
-              {:else}
-                <span class="text-green">{"\u2713"} OK</span>
-              {/if}
-            </td>
             <td class="records">{r.total_count.toLocaleString()}</td>
             <td class="mono truncate" title={String(r.report_id)}>{String(r.report_id)}</td>
           </tr>
         {/each}
         {#if reports.data.length === 0}
-          <tr><td colspan="7" class="empty">No reports yet</td></tr>
+          <tr><td colspan="5" class="empty">No reports yet</td></tr>
         {/if}
       </tbody>
     </table>
@@ -190,10 +160,6 @@
   .records-header { text-align: right; }
   .nowrap { white-space: nowrap; }
   .empty { text-align: center; color: var(--muted, #64748b); }
-  .text-red { color: #dc2626; }
-  .text-amber { color: #d97706; }
-  .text-muted { color: var(--muted, #64748b); }
-  .text-green { color: #16a34a; }
   .pagination {
     display: flex;
     align-items: center;

@@ -144,7 +144,9 @@ export async function getTopSenders(
         rr.source_ip,
         SUM(rr.count) AS total_count,
         SUM(CASE WHEN rr.disposition = 0 THEN rr.count ELSE 0 END) AS pass_count,
-        SUM(CASE WHEN rr.disposition != 0 THEN rr.count ELSE 0 END) AS fail_count
+        SUM(CASE WHEN rr.disposition != 0 THEN rr.count ELSE 0 END) AS fail_count,
+        SUM(CASE WHEN rr.spf_result = 0 THEN rr.count ELSE 0 END) AS spf_fail_count,
+        SUM(CASE WHEN rr.dkim_result = 0 THEN rr.count ELSE 0 END) AS dkim_fail_count
       FROM record_rows rr
       JOIN reports r ON r.report_id = rr.report_id
       WHERE rr.date_range_begin >= unixepoch('now', '-' || ? || ' days')
@@ -164,6 +166,8 @@ const SENDER_SORT_COLUMNS: Record<string, string> = {
   total_count: "total_count",
   pass_count: "pass_count",
   fail_count: "fail_count",
+  spf_fail: "spf_fail_count",
+  dkim_fail: "dkim_fail_count",
   rate: "CAST(SUM(CASE WHEN rr.disposition = 0 THEN rr.count ELSE 0 END) AS REAL) / MAX(SUM(rr.count), 1)",
 };
 
@@ -205,7 +209,9 @@ export async function getAllSenders(
         rr.source_ip,
         SUM(rr.count) AS total_count,
         SUM(CASE WHEN rr.disposition = 0 THEN rr.count ELSE 0 END) AS pass_count,
-        SUM(CASE WHEN rr.disposition != 0 THEN rr.count ELSE 0 END) AS fail_count
+        SUM(CASE WHEN rr.disposition != 0 THEN rr.count ELSE 0 END) AS fail_count,
+        SUM(CASE WHEN rr.spf_result = 0 THEN rr.count ELSE 0 END) AS spf_fail_count,
+        SUM(CASE WHEN rr.dkim_result = 0 THEN rr.count ELSE 0 END) AS dkim_fail_count
       FROM record_rows rr
       JOIN reports r ON r.report_id = rr.report_id
       WHERE rr.date_range_begin >= unixepoch('now', '-' || ? || ' days')
@@ -252,7 +258,6 @@ const REPORT_SORT_COLUMNS: Record<string, string> = {
   org_name: "r.org_name",
   domain: "r.domain",
   date_range_begin: "r.date_range_begin",
-  disposition: "MAX(rr.disposition)",
 };
 
 export async function getReports(
@@ -290,12 +295,7 @@ export async function getReports(
   const result = await db
     .prepare(
       `SELECT r.report_id, r.org_name, r.domain, r.date_range_begin, r.date_range_end, r.received_at,
-        COALESCE(SUM(rr.count), 0) AS total_count,
-        COALESCE(SUM(CASE WHEN rr.disposition = 0 THEN rr.count ELSE 0 END), 0) AS none_count,
-        COALESCE(SUM(CASE WHEN rr.disposition = 1 THEN rr.count ELSE 0 END), 0) AS quarantine_count,
-        COALESCE(SUM(CASE WHEN rr.disposition = 2 THEN rr.count ELSE 0 END), 0) AS reject_count,
-        COALESCE(SUM(CASE WHEN rr.spf_result = 0 THEN rr.count ELSE 0 END), 0) AS spf_fail_count,
-        COALESCE(SUM(CASE WHEN rr.dkim_result = 0 THEN rr.count ELSE 0 END), 0) AS dkim_fail_count
+        COALESCE(SUM(rr.count), 0) AS total_count
       FROM reports r
       LEFT JOIN record_rows rr ON rr.report_id = r.report_id
       ${dataWhere}

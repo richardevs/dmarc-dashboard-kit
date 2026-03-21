@@ -50,6 +50,8 @@ export interface TopSender {
   total_count: number;
   pass_count: number;
   fail_count: number;
+  spf_fail_count: number;
+  dkim_fail_count: number;
 }
 
 export interface DomainAuth {
@@ -68,11 +70,6 @@ export interface ReportListItem {
   date_range_end: number;
   received_at: string;
   total_count: number;
-  none_count: number;
-  quarantine_count: number;
-  reject_count: number;
-  spf_fail_count: number;
-  dkim_fail_count: number;
 }
 
 export interface ReportList {
