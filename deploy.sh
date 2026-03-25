@@ -18,7 +18,8 @@ if [ ! -f "$ENV_FILE" ]; then
 fi
 
 # shellcheck source=/dev/null
-source "$ENV_FILE"
+# Strip inline comments before sourcing so "VAR=value  # comment" works correctly
+eval "$(sed 's/[[:space:]]*#.*$//' "$ENV_FILE")"
 
 # Validate required vars
 for var in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID CLOUDFLARE_ZONE_ID DMARC_EMAIL; do
