@@ -41,11 +41,11 @@
     <table>
       <thead>
         <tr>
-          <th>Domain</th>
-          <th class="num">Total</th>
-          <th class="num">SPF Pass</th>
-          <th class="num">DKIM Pass</th>
-          <th>Policy</th>
+          <th scope="col">Domain</th>
+          <th scope="col" class="num">Total</th>
+          <th scope="col" class="num">SPF Pass</th>
+          <th scope="col" class="num">DKIM Pass</th>
+          <th scope="col">Policy</th>
         </tr>
       </thead>
       <tbody>
@@ -53,17 +53,17 @@
           {@const spfPct = pctNum(row.spf_pass, row.total)}
           {@const dkimPct = pctNum(row.dkim_pass, row.total)}
           <tr class:selected={row.domain === selectedDomain}>
-            <td><button class="link" onclick={() => onDomainClick(row.domain)}>{maskDomain(row.domain)}</button></td>
+            <td><button class="link" aria-pressed={row.domain === selectedDomain} onclick={() => onDomainClick(row.domain)}>{maskDomain(row.domain)}</button></td>
             <td class="num">{row.total.toLocaleString()}</td>
             <td class="num">
               <span class="rate-cell">
-                <span class="rate-bar"><span class="rate-fill" style="width:{spfPct}%; background:{barColor(spfPct)}"></span></span>
+                <span class="rate-bar" aria-hidden="true"><span class="rate-fill" style="width:{spfPct}%; background:{barColor(spfPct)}"></span></span>
                 <span class="rate-text" style="color:{barColor(spfPct)}">{pct(row.spf_pass, row.total)}</span>
               </span>
             </td>
             <td class="num">
               <span class="rate-cell">
-                <span class="rate-bar"><span class="rate-fill" style="width:{dkimPct}%; background:{barColor(dkimPct)}"></span></span>
+                <span class="rate-bar" aria-hidden="true"><span class="rate-fill" style="width:{dkimPct}%; background:{barColor(dkimPct)}"></span></span>
                 <span class="rate-text" style="color:{barColor(dkimPct)}">{pct(row.dkim_pass, row.total)}</span>
               </span>
             </td>

@@ -74,7 +74,7 @@
               maxRotation: 0,
               callback(_val: string | number, i: number) {
                 const d = new Date(labels[i] + "T00:00:00");
-                return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+                return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
               },
             },
           },
@@ -109,7 +109,7 @@
     </div>
   </div>
   <div class="chart-wrapper">
-    <canvas bind:this={canvas}></canvas>
+    <canvas bind:this={canvas} aria-label={selectedDate ? `Messages over time — filtered to ${selectedDate}` : "Messages over time line chart"}></canvas>
   </div>
 </div>
 

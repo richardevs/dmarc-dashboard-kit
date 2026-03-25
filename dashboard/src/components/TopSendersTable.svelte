@@ -82,6 +82,16 @@
     }
   }
 
+  function ariaSort(key: SortKey): "ascending" | "descending" | "none" {
+    if (activeTab === "top") {
+      if (topSortKey !== key) return "none";
+      return topSortAsc ? "ascending" : "descending";
+    } else {
+      if (allSort !== key) return "none";
+      return allDir === "asc" ? "ascending" : "descending";
+    }
+  }
+
   function sortIndicator(key: SortKey): string {
     if (activeTab === "top") {
       if (topSortKey !== key) return "";
@@ -120,35 +130,37 @@
 
 <div class="table-container">
   <div class="tab-header">
-    <div class="tab-group">
-      <button class="tab-btn" class:active={activeTab === "top"} onclick={() => switchTab("top")}>Top Senders</button>
-      <button class="tab-btn" class:active={activeTab === "all"} onclick={() => switchTab("all")}>
+    <div class="tab-group" role="tablist">
+      <button class="tab-btn" role="tab" id="tab-top" aria-selected={activeTab === "top"} aria-controls="tabpanel-senders" class:active={activeTab === "top"} onclick={() => switchTab("top")}>Top Senders</button>
+      <button class="tab-btn" role="tab" id="tab-all" aria-selected={activeTab === "all"} aria-controls="tabpanel-senders" class:active={activeTab === "all"} onclick={() => switchTab("all")}>
         All Senders
         {#if allSendersData}
           <span class="count">({allSendersData.total})</span>
         {/if}
       </button>
     </div>
-    <button class="toggle-auth" class:active={showAuthCols} onclick={toggleAuthCols}>{showAuthCols ? "Hide Details" : "Show Details"}</button>
+    <button class="toggle-auth" class:active={showAuthCols} aria-pressed={showAuthCols} onclick={toggleAuthCols}>{showAuthCols ? "Hide Details" : "Show Details"}</button>
   </div>
 
   <p class="note">Pass = DMARC disposition: none. Fail = quarantine or reject.</p>
 
+  <div aria-live="polite">
   {#if activeTab === "all" && allLoading && !allSendersData}
     <p class="loading">Loading...</p>
   {:else}
+    <div id="tabpanel-senders" role="tabpanel" aria-labelledby={activeTab === "top" ? "tab-top" : "tab-all"}>
     <table>
       <thead>
         <tr>
-          <th class="sortable" onclick={() => toggleSort("source_ip")}>Source IP{sortIndicator("source_ip")}</th>
-          <th class="sortable num" onclick={() => toggleSort("total_count")}>Total{sortIndicator("total_count")}</th>
-          <th class="sortable num" onclick={() => toggleSort("pass_count")}>Pass{sortIndicator("pass_count")}</th>
-          <th class="sortable num" onclick={() => toggleSort("fail_count")}>Fail{sortIndicator("fail_count")}</th>
+          <th scope="col" class="sortable" tabindex="0" aria-sort={ariaSort("source_ip")} onclick={() => toggleSort("source_ip")} onkeydown={(e) => e.key === "Enter" && toggleSort("source_ip")}>Source IP<span aria-hidden="true">{sortIndicator("source_ip")}</span></th>
+          <th scope="col" class="sortable num" tabindex="0" aria-sort={ariaSort("total_count")} onclick={() => toggleSort("total_count")} onkeydown={(e) => e.key === "Enter" && toggleSort("total_count")}>Total<span aria-hidden="true">{sortIndicator("total_count")}</span></th>
+          <th scope="col" class="sortable num" tabindex="0" aria-sort={ariaSort("pass_count")} onclick={() => toggleSort("pass_count")} onkeydown={(e) => e.key === "Enter" && toggleSort("pass_count")}>Pass<span aria-hidden="true">{sortIndicator("pass_count")}</span></th>
+          <th scope="col" class="sortable num" tabindex="0" aria-sort={ariaSort("fail_count")} onclick={() => toggleSort("fail_count")} onkeydown={(e) => e.key === "Enter" && toggleSort("fail_count")}>Fail<span aria-hidden="true">{sortIndicator("fail_count")}</span></th>
           {#if showAuthCols}
-            <th class="sortable num" onclick={() => toggleSort("spf_fail")}>SPF Fail{sortIndicator("spf_fail")}</th>
-            <th class="sortable num" onclick={() => toggleSort("dkim_fail")}>DKIM Fail{sortIndicator("dkim_fail")}</th>
+            <th scope="col" class="sortable num" tabindex="0" aria-sort={ariaSort("spf_fail")} onclick={() => toggleSort("spf_fail")} onkeydown={(e) => e.key === "Enter" && toggleSort("spf_fail")}>SPF Fail<span aria-hidden="true">{sortIndicator("spf_fail")}</span></th>
+            <th scope="col" class="sortable num" tabindex="0" aria-sort={ariaSort("dkim_fail")} onclick={() => toggleSort("dkim_fail")} onkeydown={(e) => e.key === "Enter" && toggleSort("dkim_fail")}>DKIM Fail<span aria-hidden="true">{sortIndicator("dkim_fail")}</span></th>
           {:else}
-            <th class="sortable num" onclick={() => toggleSort("rate")}>Rate{sortIndicator("rate")}</th>
+            <th scope="col" class="sortable num" tabindex="0" aria-sort={ariaSort("rate")} onclick={() => toggleSort("rate")} onkeydown={(e) => e.key === "Enter" && toggleSort("rate")}>Rate<span aria-hidden="true">{sortIndicator("rate")}</span></th>
           {/if}
         </tr>
       </thead>
@@ -166,7 +178,7 @@
               {@const pct = pctNum(s.pass_count, s.total_count)}
               <td class="num">
                 <span class="rate-cell">
-                  <span class="rate-bar"><span class="rate-fill" style="width:{pct}%; background:{barColor(pct)}"></span></span>
+                  <span class="rate-bar" aria-hidden="true"><span class="rate-fill" style="width:{pct}%; background:{barColor(pct)}"></span></span>
                   <span class="rate-text" style="color:{barColor(pct)}">{pctStr(s.pass_count, s.total_count)}</span>
                 </span>
               </td>
@@ -178,17 +190,19 @@
         {/if}
       </tbody>
     </table>
+    </div>
 
     {#if activeTab === "all" && allSendersData && totalPages > 1}
       <div class="pagination">
-        <button disabled={allSendersData.page <= 1} onclick={() => goToPage(1)}>&laquo;</button>
-        <button disabled={allSendersData.page <= 1} onclick={() => goToPage(allSendersData!.page - 1)}>&lsaquo; Prev</button>
+        <button aria-label="First page" disabled={allSendersData.page <= 1} onclick={() => goToPage(1)}>&laquo;</button>
+        <button aria-label="Previous page" disabled={allSendersData.page <= 1} onclick={() => goToPage(allSendersData!.page - 1)}>&lsaquo; Prev</button>
         <span class="page-info">{allSendersData.page} / {totalPages}</span>
-        <button disabled={allSendersData.page >= totalPages} onclick={() => goToPage(allSendersData!.page + 1)}>Next &rsaquo;</button>
-        <button disabled={allSendersData.page >= totalPages} onclick={() => goToPage(totalPages)}>&raquo;</button>
+        <button aria-label="Next page" disabled={allSendersData.page >= totalPages} onclick={() => goToPage(allSendersData!.page + 1)}>Next &rsaquo;</button>
+        <button aria-label="Last page" disabled={allSendersData.page >= totalPages} onclick={() => goToPage(totalPages)}>&raquo;</button>
       </div>
     {/if}
   {/if}
+  </div>
 </div>
 
 <style>

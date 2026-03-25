@@ -11,7 +11,7 @@
   let rate = $derived(summary ? passRateNum(summary) : 0);
 </script>
 
-<div class="cards">
+<div class="cards" aria-live="polite">
   {#if summary}
     <div class="card">
       <div class="card-label">Total Messages</div>
@@ -20,7 +20,7 @@
     <div class="card">
       <div class="card-label">Pass Rate</div>
       <div class="card-value" class:good={rate >= 90} class:bad={rate < 90}>
-        {rate >= 90 ? "\u2713" : "\u2717"} {summary.total_messages === 0 ? "N/A" : rate.toFixed(1) + "%"}
+        <span aria-hidden="true">{rate >= 90 ? "\u2713" : "\u2717"}</span> {summary.total_messages === 0 ? "N/A" : rate.toFixed(1) + "%"}
       </div>
       {#if summary.total_messages > 0}
         <div class="threshold" class:threshold-ok={rate >= 90} class:threshold-warn={rate < 90}>

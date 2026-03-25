@@ -65,7 +65,7 @@
 </script>
 
 <div class="table-container">
-  <button class="toggle" onclick={toggleExpanded}>
+  <button class="toggle" aria-expanded={expanded} onclick={toggleExpanded}>
     <span class="chevron">{expanded ? "\u25BC" : "\u25B6"}</span> Recent Reports
     {#if reports}
       <span class="count">({reports.total})</span>
@@ -75,11 +75,11 @@
     <table>
       <thead>
         <tr>
-          <th class="sortable" onclick={() => toggleSort("org_name")}>Org{sortIndicator("org_name")}</th>
-          <th class="sortable" onclick={() => toggleSort("domain")}>Domain{sortIndicator("domain")}</th>
-          <th class="sortable" onclick={() => toggleSort("date_range_begin")}>Date Range{sortIndicator("date_range_begin")}</th>
-          <th class="records-header">Records</th>
-          <th>Report ID</th>
+          <th scope="col" class="sortable" tabindex="0" aria-sort={sortKey === "org_name" ? (sortAsc ? "ascending" : "descending") : "none"} onclick={() => toggleSort("org_name")} onkeydown={(e) => e.key === "Enter" && toggleSort("org_name")}>Org<span aria-hidden="true">{sortIndicator("org_name")}</span></th>
+          <th scope="col" class="sortable" tabindex="0" aria-sort={sortKey === "domain" ? (sortAsc ? "ascending" : "descending") : "none"} onclick={() => toggleSort("domain")} onkeydown={(e) => e.key === "Enter" && toggleSort("domain")}>Domain<span aria-hidden="true">{sortIndicator("domain")}</span></th>
+          <th scope="col" class="sortable" tabindex="0" aria-sort={sortKey === "date_range_begin" ? (sortAsc ? "ascending" : "descending") : "none"} onclick={() => toggleSort("date_range_begin")} onkeydown={(e) => e.key === "Enter" && toggleSort("date_range_begin")}>Date Range<span aria-hidden="true">{sortIndicator("date_range_begin")}</span></th>
+          <th scope="col" class="records-header">Records</th>
+          <th scope="col">Report ID</th>
         </tr>
       </thead>
       <tbody>
@@ -99,12 +99,13 @@
     </table>
     {#if totalPages > 1}
       <div class="pagination">
-        <button disabled={reports.page <= 1} onclick={() => goToPage(1)}>&laquo;</button>
-        <button disabled={reports.page <= 1} onclick={() => goToPage(reports!.page - 1)}>&lsaquo; Prev</button>
+        <button aria-label="First page" disabled={reports.page <= 1} onclick={() => goToPage(1)}>&laquo;</button>
+        <button aria-label="Previous page" disabled={reports.page <= 1} onclick={() => goToPage(reports!.page - 1)}>&lsaquo; Prev</button>
         <span class="page-info">
           <input
             type="number"
             class="page-input"
+            aria-label="Page number"
             min="1"
             max={totalPages}
             bind:value={pageInput}
@@ -112,8 +113,8 @@
             onkeydown={handlePageKeydown}
           /> / {totalPages}
         </span>
-        <button disabled={reports.page >= totalPages} onclick={() => goToPage(reports!.page + 1)}>Next &rsaquo;</button>
-        <button disabled={reports.page >= totalPages} onclick={() => goToPage(totalPages)}>&raquo;</button>
+        <button aria-label="Next page" disabled={reports.page >= totalPages} onclick={() => goToPage(reports!.page + 1)}>Next &rsaquo;</button>
+        <button aria-label="Last page" disabled={reports.page >= totalPages} onclick={() => goToPage(totalPages)}>&raquo;</button>
       </div>
     {/if}
   {/if}
@@ -134,6 +135,10 @@
     font-size: 1rem;
     font-weight: 700;
     color: var(--text, #1e293b);
+  }
+  .toggle:focus-visible {
+    outline: 2px solid #3b82f6;
+    outline-offset: 2px;
   }
   .toggle:hover { opacity: 0.8; }
   .chevron { display: inline-block; width: 1em; font-size: 0.75rem; }

@@ -144,7 +144,7 @@
   <header>
     <h1>DMARC Dashboard</h1>
     <div class="controls">
-      <select bind:value={selectedDomain} onchange={loadData}>
+      <select bind:value={selectedDomain} onchange={loadData} aria-label="Filter by domain">
         <option value="">All Domains</option>
         {#each domains as d}
           <option value={d}>{maskDomain(d)}</option>
@@ -152,7 +152,7 @@
       </select>
       <div class="btn-group">
         {#each ["7", "30", "90"] as d}
-          <button class:active={selectedDays === d} onclick={() => { selectedDays = d; localStorage.setItem("selected-days", d); loadData(); }}>
+          <button class:active={selectedDays === d} aria-pressed={selectedDays === d} onclick={() => { selectedDays = d; localStorage.setItem("selected-days", d); loadData(); }}>
             {d}d
           </button>
         {/each}
@@ -161,7 +161,7 @@
   </header>
 
   {#if error}
-    <div class="error">{error}</div>
+    <div class="error" role="alert">{error}</div>
   {/if}
 
   <SummaryCards {summary} />
@@ -198,6 +198,7 @@
       --row-alt: #1a2235;
     }
   }
+
 
   :global(body) {
     margin: 0;
