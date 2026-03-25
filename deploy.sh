@@ -21,12 +21,21 @@ fi
 source "$ENV_FILE"
 
 # Validate required vars
-for var in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID CLOUDFLARE_ZONE_ID DMARC_EMAIL ACCESS_ALLOWED_EMAILS; do
+for var in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID CLOUDFLARE_ZONE_ID DMARC_EMAIL; do
   if [ -z "${!var:-}" ]; then
     echo "ERROR: $var is not set in $ENV_FILE"
     exit 1
   fi
 done
+
+if [ -z "${ACCESS_ALLOWED_EMAILS:-}" ] && [ -z "${ACCESS_ALLOWED_EMAIL_DOMAINS:-}" ] && [ -z "${ACCESS_ALLOWED_IPS:-}" ]; then
+  echo "ERROR: Set at least one of ACCESS_ALLOWED_EMAILS, ACCESS_ALLOWED_EMAIL_DOMAINS, or ACCESS_ALLOWED_IPS in $ENV_FILE"
+  exit 1
+fi
+
+if [ -z "${ACCESS_ALLOWED_EMAILS:-}" ] && [ -z "${ACCESS_ALLOWED_EMAIL_DOMAINS:-}" ] && [ -n "${ACCESS_ALLOWED_IPS:-}" ]; then
+  echo "  WARNING: Only ACCESS_ALLOWED_IPS is set — anyone from these IP ranges can access the dashboard without email identity verification."
+fi
 
 CF_API="https://api.cloudflare.com/client/v4"
 AUTH_HEADER="Authorization: Bearer ${CLOUDFLARE_API_TOKEN}"
@@ -256,19 +265,47 @@ if [ -n "$APP_ID" ]; then
 
   if [ "$POLICY_EXISTS" = "no" ]; then
     echo "  Creating Access policy..."
-    INCLUDE_RULES=$(echo "$ACCESS_ALLOWED_EMAILS" | python3 -c "
-import sys,json
-emails=[e.strip() for e in sys.stdin.read().split(',') if e.strip()]
-print(json.dumps([{'email': {'email': e}} for e in emails]))")
+
+    INCLUDE_RULES=$(python3 -c "
+import os, json
+rules = []
+emails = os.environ.get('ACCESS_ALLOWED_EMAILS', '')
+domains = os.environ.get('ACCESS_ALLOWED_EMAIL_DOMAINS', '')
+ips = os.environ.get('ACCESS_ALLOWED_IPS', '')
+has_identity = bool(emails or domains)
+if emails:
+    rules += [{'email': {'email': e.strip()}} for e in emails.split(',') if e.strip()]
+if domains:
+    rules += [{'email_domain': {'domain': d.strip()}} for d in domains.split(',') if d.strip()]
+if not has_identity and ips:
+    rules += [{'ip': {'ip': c.strip()}} for c in ips.split(',') if c.strip()]
+print(json.dumps(rules))
+")
+
+    REQUIRE_RULES=$(python3 -c "
+import os, json
+ips = os.environ.get('ACCESS_ALLOWED_IPS', '')
+has_identity = bool(os.environ.get('ACCESS_ALLOWED_EMAILS', '') or os.environ.get('ACCESS_ALLOWED_EMAIL_DOMAINS', ''))
+if ips and has_identity:
+    rules = [{'ip': {'ip': c.strip()}} for c in ips.split(',') if c.strip()]
+else:
+    rules = []
+print(json.dumps(rules))
+")
 
     POLICY_RESPONSE=$(cf_post -X POST "${CF_API}/accounts/${CLOUDFLARE_ACCOUNT_ID}/access/apps/${APP_ID}/policies" \
       -d "{
-        \"name\": \"Allow specific emails\",
+        \"name\": \"Allow access\",
         \"decision\": \"allow\",
-        \"include\": ${INCLUDE_RULES}
+        \"include\": ${INCLUDE_RULES},
+        \"require\": ${REQUIRE_RULES}
       }")
     if echo "$POLICY_RESPONSE" | python3 -c "import sys,json; assert json.load(sys.stdin).get('success')" 2>/dev/null; then
-      echo "  Created Access policy: allow ${ACCESS_ALLOWED_EMAILS}"
+      POLICY_SUMMARY=""
+      [ -n "${ACCESS_ALLOWED_EMAILS:-}" ] && POLICY_SUMMARY="${POLICY_SUMMARY} emails=[${ACCESS_ALLOWED_EMAILS}]"
+      [ -n "${ACCESS_ALLOWED_EMAIL_DOMAINS:-}" ] && POLICY_SUMMARY="${POLICY_SUMMARY} domains=[${ACCESS_ALLOWED_EMAIL_DOMAINS}]"
+      [ -n "${ACCESS_ALLOWED_IPS:-}" ] && POLICY_SUMMARY="${POLICY_SUMMARY} ips=[${ACCESS_ALLOWED_IPS}]"
+      echo "  Created Access policy:${POLICY_SUMMARY}"
     else
       echo "  WARNING: Failed to create Access policy:"
       echo "$POLICY_RESPONSE" | python3 -c "import sys,json; [print(f'    {e[\"message\"]}') for e in json.load(sys.stdin).get('errors',[])]" 2>/dev/null || echo "  $POLICY_RESPONSE"

@@ -55,7 +55,9 @@ CLOUDFLARE_ACCOUNT_ID=       # Account ID (dashboard → Overview → right side
 CLOUDFLARE_ZONE_ID=          # Zone ID (same location — domain auto-detected from zone)
 DMARC_EMAIL=dmarc            # Local part (receives at dmarc@yourdomain.com)
 REPORT_AUTHORIZED_DOMAINS=   # Optional: comma-separated domains, or leave empty for wildcard
-ACCESS_ALLOWED_EMAILS=       # comma-separated, e.g. "you@gmail.com,coworker@outlook.com"
+ACCESS_ALLOWED_EMAILS=        # specific addresses, e.g. "you@gmail.com,coworker@outlook.com"
+ACCESS_ALLOWED_EMAIL_DOMAINS= # email domains, e.g. "company.com" (OR'd with emails above)
+ACCESS_ALLOWED_IPS=           # IP/CIDR ranges, e.g. "10.0.0.0/8" (AND'd with identity above)
 ```
 
 Then run `pnpm run deploy` again.
