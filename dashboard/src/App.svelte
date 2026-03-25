@@ -142,7 +142,7 @@
 
 <main>
   <header>
-    <h1>DMARC Dashboard</h1>
+    <h1>DMARC Dashboard <a class="commit-badge" href="https://github.com/richardevs/dmarc-dashboard-kit" target="_blank" rel="noopener noreferrer">{__GIT_HASH__}</a></h1>
     <div class="controls">
       <select bind:value={selectedDomain} onchange={loadData} aria-label="Filter by domain">
         <option value="">All Domains</option>
@@ -237,6 +237,28 @@
     gap: 0.75rem;
     align-items: center;
   }
+
+  .commit-badge {
+    font-family: monospace;
+    font-size: 11px;
+    font-weight: 500;
+    color: #3C3489;
+    background: #EEEDFE;
+    border-radius: 4px;
+    padding: 2px 7px;
+    vertical-align: middle;
+    position: relative;
+    top: -2px;
+    text-decoration: none;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .commit-badge {
+      color: #CECBF6;
+      background: #26215C;
+    }
+  }
+
 
   select {
     padding: 0.4rem 0.6rem;
