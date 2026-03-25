@@ -19,7 +19,10 @@ fi
 
 # shellcheck source=/dev/null
 # Strip inline comments before sourcing so "VAR=value  # comment" works correctly
+# set -a auto-exports all variables so python3 subprocesses see them via os.environ
+set -a
 eval "$(sed 's/[[:space:]]*#.*$//' "$ENV_FILE")"
+set +a
 
 # Validate required vars
 for var in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID CLOUDFLARE_ZONE_ID DMARC_EMAIL; do
@@ -267,6 +270,48 @@ if [ -n "$APP_ID" ]; then
   if [ "$POLICY_EXISTS" = "no" ]; then
     echo "  Creating Access policy..."
 
+    # When both identity rules and IPs are set, create/update an Access Group for the IPs.
+    # Rules within a group's include are OR'd, then the group is AND'd via require.
+    # This avoids the flat-require AND problem where multiple IPs require matching all at once.
+    IP_GROUP_ID=""
+    if [ -n "${ACCESS_ALLOWED_IPS:-}" ] && { [ -n "${ACCESS_ALLOWED_EMAILS:-}" ] || [ -n "${ACCESS_ALLOWED_EMAIL_DOMAINS:-}" ]; }; then
+      GROUP_INCLUDE=$(python3 -c "
+import os, json
+ips = os.environ.get('ACCESS_ALLOWED_IPS', '')
+rules = [{'ip': {'ip': c.strip()}} for c in ips.split(',') if c.strip()]
+print(json.dumps(rules))
+")
+      EXISTING_GROUPS=$(cf_get "${CF_API}/accounts/${CLOUDFLARE_ACCOUNT_ID}/access/groups" || echo '{"result":[]}')
+      IP_GROUP_ID=$(echo "$EXISTING_GROUPS" | python3 -c "
+import sys, json
+groups = json.load(sys.stdin).get('result', [])
+match = [g for g in groups if g.get('name') == 'DMARC Dashboard IPs']
+print(match[0]['id'] if match else '')
+" 2>/dev/null || echo "")
+
+      if [ -z "$IP_GROUP_ID" ]; then
+        GROUP_RESPONSE=$(cf_post -X POST "${CF_API}/accounts/${CLOUDFLARE_ACCOUNT_ID}/access/groups" \
+          -d "{\"name\": \"DMARC Dashboard IPs\", \"include\": ${GROUP_INCLUDE}}")
+        IP_GROUP_ID=$(echo "$GROUP_RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin)['result']['id'])" 2>/dev/null || echo "")
+        if [ -n "$IP_GROUP_ID" ]; then
+          echo "  Created Access group for IPs: $IP_GROUP_ID"
+        else
+          echo "  WARNING: Failed to create Access group for IPs:"
+          echo "$GROUP_RESPONSE" | python3 -c "import sys,json; [print(f'    {e[\"message\"]}') for e in json.load(sys.stdin).get('errors',[])]" 2>/dev/null || echo "  $GROUP_RESPONSE"
+        fi
+      else
+        UPDATE_GROUP=$(cf_post -X PUT "${CF_API}/accounts/${CLOUDFLARE_ACCOUNT_ID}/access/groups/${IP_GROUP_ID}" \
+          -d "{\"name\": \"DMARC Dashboard IPs\", \"include\": ${GROUP_INCLUDE}}")
+        if echo "$UPDATE_GROUP" | python3 -c "import sys,json; assert json.load(sys.stdin).get('success')" 2>/dev/null; then
+          echo "  Updated Access group for IPs: $IP_GROUP_ID"
+        else
+          echo "  WARNING: Failed to update Access group for IPs:"
+          echo "$UPDATE_GROUP" | python3 -c "import sys,json; [print(f'    {e[\"message\"]}') for e in json.load(sys.stdin).get('errors',[])]" 2>/dev/null || echo "  $UPDATE_GROUP"
+        fi
+      fi
+      export IP_GROUP_ID
+    fi
+
     INCLUDE_RULES=$(python3 -c "
 import os, json
 rules = []
@@ -285,10 +330,9 @@ print(json.dumps(rules))
 
     REQUIRE_RULES=$(python3 -c "
 import os, json
-ips = os.environ.get('ACCESS_ALLOWED_IPS', '')
-has_identity = bool(os.environ.get('ACCESS_ALLOWED_EMAILS', '') or os.environ.get('ACCESS_ALLOWED_EMAIL_DOMAINS', ''))
-if ips and has_identity:
-    rules = [{'ip': {'ip': c.strip()}} for c in ips.split(',') if c.strip()]
+group_id = os.environ.get('IP_GROUP_ID', '')
+if group_id:
+    rules = [{'group': {'id': group_id}}]
 else:
     rules = []
 print(json.dumps(rules))
@@ -296,7 +340,7 @@ print(json.dumps(rules))
 
     POLICY_RESPONSE=$(cf_post -X POST "${CF_API}/accounts/${CLOUDFLARE_ACCOUNT_ID}/access/apps/${APP_ID}/policies" \
       -d "{
-        \"name\": \"Allow access\",
+        \"name\": \"DMARC Dashboard Allow\",
         \"decision\": \"allow\",
         \"include\": ${INCLUDE_RULES},
         \"require\": ${REQUIRE_RULES}
