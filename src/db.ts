@@ -232,6 +232,29 @@ export async function getAllSenders(
   };
 }
 
+export async function getAllSenderIps(
+  db: D1Database,
+  days: number,
+  domain?: string,
+  date?: string,
+  tzMinutes = 0
+): Promise<string[]> {
+  const { clause, params } = domainFilter(domain);
+  const { clause: dateClause, params: dateParams } = dateFilter(date, tzMinutes);
+  const result = await db
+    .prepare(
+      `SELECT DISTINCT rr.source_ip
+      FROM record_rows rr
+      JOIN reports r ON r.report_id = rr.report_id
+      WHERE rr.date_range_begin >= unixepoch('now', '-' || ? || ' days')
+      ${clause}
+      ${dateClause}`
+    )
+    .bind(days, ...params, ...dateParams)
+    .all<{ source_ip: string }>();
+  return result.results.map((r) => r.source_ip);
+}
+
 export async function getDomainAuth(db: D1Database, days: number, date?: string, tzMinutes = 0) {
   const { clause: dateClause, params: dateParams } = dateFilter(date, tzMinutes);
   const result = await db

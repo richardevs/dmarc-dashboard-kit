@@ -1,6 +1,6 @@
 <script lang="ts">
   import { untrack } from "svelte";
-  import { getAllSenders, type TopSender, type SenderList } from "../lib/api";
+  import { getAllSenders, getAllSenderIps, fetchIpInfo, type TopSender, type SenderList, type IpInfo } from "../lib/api";
 
   let { senders, days, domain, date = "" }: { senders: TopSender[]; days: string; domain: string; date?: string } = $props();
 
@@ -8,16 +8,55 @@
   let activeTab: Tab = $state("top");
   let showAuthCols: boolean = $state(localStorage.getItem("senders-auth-cols") === "true");
 
+  // IP geo enrichment state
+  let ipInfoMap: Record<string, IpInfo> = $state({});
+  let ipInfoLoading: boolean = $state(false);
+  let rateLimitCountdown: number = $state(0);
+  let countdownInterval: ReturnType<typeof setInterval> | null = null;
+
+  function startCountdown(seconds: number) {
+    rateLimitCountdown = seconds;
+    if (countdownInterval) clearInterval(countdownInterval);
+    countdownInterval = setInterval(() => {
+      rateLimitCountdown -= 1;
+      if (rateLimitCountdown <= 0) {
+        clearInterval(countdownInterval!);
+        countdownInterval = null;
+        rateLimitCountdown = 0;
+        if (showAuthCols) loadIpInfo();
+      }
+    }, 1000);
+  }
+
+  async function loadIpInfo() {
+    let ips: string[];
+    if (activeTab === "top") {
+      ips = senders.map((s) => s.source_ip);
+    } else {
+      ips = await getAllSenderIps(days, domain || undefined, date || undefined);
+    }
+    if (ips.length === 0) return;
+    ipInfoLoading = true;
+    try {
+      const result = await fetchIpInfo(ips);
+      ipInfoMap = { ...ipInfoMap, ...result.data };
+      if (result.retryAfter > 0) startCountdown(result.retryAfter);
+    } finally {
+      ipInfoLoading = false;
+    }
+  }
+
   function toggleAuthCols() {
     showAuthCols = !showAuthCols;
     localStorage.setItem("senders-auth-cols", String(showAuthCols));
+    if (showAuthCols) loadIpInfo();
   }
 
   // All Senders state
-  let allSendersData: SenderList | null = $state(null);
+  let allSendersData = $state<SenderList | null>(null);
   let allLoading: boolean = $state(false);
-  let allSort: string = $state("");
-  let allDir: string = $state("");
+  let allSort: string = $state("total_count");
+  let allDir: string = $state("desc");
 
   async function fetchAllSenders(page = 1) {
     allLoading = true;
@@ -35,20 +74,41 @@
     }
   }
 
-  // Reset "All Senders" when filters change
+  // Reset "All Senders" and geo state when filters change
   $effect(() => {
     void days;
     void domain;
     void date;
     allSendersData = null;
-    allSort = "";
-    allDir = "";
+    allSort = "total_count";
+    allDir = "desc";
+    ipInfoMap = {};
+    if (countdownInterval) { clearInterval(countdownInterval); countdownInterval = null; }
+    rateLimitCountdown = 0;
     untrack(() => {
       if (activeTab === "all") {
         fetchAllSenders();
       }
+      if (showAuthCols) loadIpInfo();
     });
   });
+
+  // On page refresh with showAuthCols=true, senders arrives after the initial effect runs.
+  // Watch senders and load geo info if details are shown and any IP is missing from the map.
+  $effect(() => {
+    void senders;
+    if (showAuthCols && activeTab === "top" && senders.some((s) => !ipInfoMap[s.source_ip])) {
+      untrack(() => loadIpInfo());
+    }
+  });
+
+  // Re-load geo info when switching tabs while details are shown
+  function switchTabAndReload(tab: Tab) {
+    switchTab(tab);
+    if (showAuthCols) {
+      untrack(() => loadIpInfo());
+    }
+  }
 
   function pctStr(pass: number, total: number): string {
     if (total === 0) return "N/A";
@@ -131,18 +191,23 @@
 <div class="table-container">
   <div class="tab-header">
     <div class="tab-group" role="tablist">
-      <button class="tab-btn" role="tab" id="tab-top" aria-selected={activeTab === "top"} aria-controls="tabpanel-senders" class:active={activeTab === "top"} onclick={() => switchTab("top")}>Top Senders</button>
-      <button class="tab-btn" role="tab" id="tab-all" aria-selected={activeTab === "all"} aria-controls="tabpanel-senders" class:active={activeTab === "all"} onclick={() => switchTab("all")}>
+      <button class="tab-btn" role="tab" id="tab-top" aria-selected={activeTab === "top"} aria-controls="tabpanel-senders" class:active={activeTab === "top"} onclick={() => switchTabAndReload("top")}>Top Senders</button>
+      <button class="tab-btn" role="tab" id="tab-all" aria-selected={activeTab === "all"} aria-controls="tabpanel-senders" class:active={activeTab === "all"} onclick={() => switchTabAndReload("all")}>
         All Senders
         {#if allSendersData}
           <span class="count">({allSendersData.total})</span>
         {/if}
       </button>
     </div>
-    <button class="toggle-auth" class:active={showAuthCols} aria-pressed={showAuthCols} onclick={toggleAuthCols}>{showAuthCols ? "Hide Details" : "Show Details"}</button>
+    <div class="toggle-auth-wrap">
+      <button class="toggle-auth" class:active={showAuthCols} aria-pressed={showAuthCols} onclick={toggleAuthCols}>{showAuthCols ? "Hide Details" : "Show Details"}</button>
+      {#if showAuthCols && rateLimitCountdown > 0}
+        <span class="rate-limit-note">IP lookup limited, retrying in {rateLimitCountdown}s</span>
+      {/if}
+    </div>
   </div>
 
-  <p class="note">Pass = DMARC disposition: none. Fail = quarantine or reject.</p>
+  <p class="note">Pass = DMARC disposition: none. Fail = quarantine or reject.<br>IP data provided by <a href="https://ip-api.com/docs/legal" target="_blank" rel="noopener noreferrer">ip-api.com</a> when "Show Details" is active.</p>
 
   <div aria-live="polite">
   {#if activeTab === "all" && allLoading && !allSendersData}
@@ -167,7 +232,17 @@
       <tbody>
         {#each displayRows as s}
           <tr>
-            <td class="mono">{s.source_ip}</td>
+            <td class="mono">
+              {s.source_ip}
+              {#if showAuthCols}
+                {@const geo = ipInfoMap[s.source_ip]}
+                {#if ipInfoLoading && !geo}
+                  <span class="geo-info muted">…</span>
+                {:else if geo?.country}
+                  <span class="geo-info" title={geo.org}>{geo.countryCode} · {geo.org}</span>
+                {/if}
+              {/if}
+            </td>
             <td class="num">{s.total_count.toLocaleString()}</td>
             <td class="num good">{s.pass_count.toLocaleString()}</td>
             <td class="num bad">{s.fail_count.toLocaleString()}</td>
@@ -218,7 +293,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    margin-bottom: 1rem;
+    margin-bottom: 0.25rem;
   }
   .tab-group {
     display: flex;
@@ -241,6 +316,12 @@
     color: var(--bg, #f8fafc);
   }
   .count { font-weight: 400; opacity: 0.8; font-size: 0.8rem; }
+  .toggle-auth-wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 0.2rem;
+  }
   .toggle-auth {
     padding: 0.3rem 0.6rem;
     border: 1px solid var(--border, #e2e8f0);
@@ -255,8 +336,24 @@
     color: var(--bg, #f8fafc);
     border-color: var(--text, #1e293b);
   }
+  .rate-limit-note {
+    font-size: 0.7rem;
+    color: var(--muted, #64748b);
+  }
+  .geo-info {
+    display: block;
+    font-size: 0.72rem;
+    color: var(--muted, #64748b);
+    font-family: inherit;
+    max-width: 150px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
   .loading { text-align: center; color: var(--muted, #64748b); font-size: 0.85rem; padding: 2rem 0; }
-  .note { margin: 0 0 0.5rem; font-size: 0.75rem; color: var(--muted, #64748b); }
+  .note { margin: 0 0 0.75rem; font-size: 0.75rem; color: var(--muted, #64748b); }
+  .note a { color: var(--muted, #64748b); text-decoration: underline; }
+  .note a:hover { color: var(--text, #1e293b); }
   table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
   th, td {
     text-align: left;
