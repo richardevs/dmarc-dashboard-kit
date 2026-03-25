@@ -154,57 +154,48 @@ fi
 #   otherdomain.com._report._dmarc.cf-dmarc.uk TXT "v=DMARC1;"
 # If REPORT_AUTHORIZED_DOMAINS is set, create per-domain records.
 # Otherwise, create a wildcard *._report._dmarc to accept reports from any domain.
+upsert_report_dmarc_record() {
+  local RECORD_NAME="$1"
+  local LABEL="${2:-${RECORD_NAME}.${DMARC_DOMAIN}}"
+  local RECORD_BODY="{
+    \"type\": \"TXT\",
+    \"name\": \"${RECORD_NAME}\",
+    \"content\": \"\\\"v=DMARC1;\\\"\",
+    \"ttl\": 3600
+  }"
+  EXISTING_DNS=$(cf_get "${CF_API}/zones/${CLOUDFLARE_ZONE_ID}/dns_records?type=TXT&name=${RECORD_NAME}.${DMARC_DOMAIN}" || echo '{"result":[]}')
+  DNS_ID=$(echo "$EXISTING_DNS" | python3 -c "import sys,json; r=json.load(sys.stdin).get('result',[]); print(r[0]['id'] if r else '')" 2>/dev/null || echo "")
+
+  if [ -z "$DNS_ID" ]; then
+    echo "  Creating ${LABEL} TXT record..."
+    DNS_RESPONSE=$(cf_post -X POST "${CF_API}/zones/${CLOUDFLARE_ZONE_ID}/dns_records" -d "$RECORD_BODY")
+    if echo "$DNS_RESPONSE" | python3 -c "import sys,json; assert json.load(sys.stdin).get('success')" 2>/dev/null; then
+      echo "  Created: ${LABEL}"
+    else
+      echo "  WARNING: Failed to create ${LABEL} record:"
+      echo "$DNS_RESPONSE" | python3 -c "import sys,json; [print(f'    {e[\"message\"]}') for e in json.load(sys.stdin).get('errors',[])]" 2>/dev/null || echo "  $DNS_RESPONSE"
+    fi
+  else
+    echo "  Updating ${LABEL} TXT record..."
+    DNS_RESPONSE=$(cf_post -X PUT "${CF_API}/zones/${CLOUDFLARE_ZONE_ID}/dns_records/${DNS_ID}" -d "$RECORD_BODY")
+    if echo "$DNS_RESPONSE" | python3 -c "import sys,json; assert json.load(sys.stdin).get('success')" 2>/dev/null; then
+      echo "  Updated: ${LABEL}"
+    else
+      echo "  WARNING: Failed to update ${LABEL} record:"
+      echo "$DNS_RESPONSE" | python3 -c "import sys,json; [print(f'    {e[\"message\"]}') for e in json.load(sys.stdin).get('errors',[])]" 2>/dev/null || echo "  $DNS_RESPONSE"
+    fi
+  fi
+}
+
 if [ -n "${REPORT_AUTHORIZED_DOMAINS:-}" ]; then
   IFS=',' read -ra AUTH_DOMAINS <<< "$REPORT_AUTHORIZED_DOMAINS"
   for AUTH_DOMAIN in "${AUTH_DOMAINS[@]}"; do
     AUTH_DOMAIN=$(echo "$AUTH_DOMAIN" | xargs)  # trim whitespace
-    RECORD_NAME="${AUTH_DOMAIN}._report._dmarc"
-    EXISTING_DNS=$(cf_get "${CF_API}/zones/${CLOUDFLARE_ZONE_ID}/dns_records?type=TXT&name=${RECORD_NAME}.${DMARC_DOMAIN}" || echo '{"result":[]}')
-    DNS_EXISTS=$(echo "$EXISTING_DNS" | python3 -c "import sys,json; print('yes' if json.load(sys.stdin).get('result') else 'no')" 2>/dev/null || echo "no")
-
-    if [ "$DNS_EXISTS" = "no" ]; then
-      echo "  Creating ${RECORD_NAME}.${DMARC_DOMAIN} TXT record..."
-      DNS_RESPONSE=$(cf_post -X POST "${CF_API}/zones/${CLOUDFLARE_ZONE_ID}/dns_records" \
-        -d "{
-          \"type\": \"TXT\",
-          \"name\": \"${RECORD_NAME}\",
-          \"content\": \"\\\"v=DMARC1;\\\"\",
-          \"ttl\": 3600
-        }")
-      if echo "$DNS_RESPONSE" | python3 -c "import sys,json; assert json.load(sys.stdin).get('success')" 2>/dev/null; then
-        echo "  Created: ${RECORD_NAME}.${DMARC_DOMAIN}"
-      else
-        echo "  WARNING: Failed to create ${RECORD_NAME} record:"
-        echo "$DNS_RESPONSE" | python3 -c "import sys,json; [print(f'    {e[\"message\"]}') for e in json.load(sys.stdin).get('errors',[])]" 2>/dev/null || echo "  $DNS_RESPONSE"
-      fi
-    else
-      echo "  ${RECORD_NAME}.${DMARC_DOMAIN} already exists"
-    fi
+    upsert_report_dmarc_record "${AUTH_DOMAIN}._report._dmarc"
   done
 else
   # Wildcard: accept DMARC reports from any domain
-  RECORD_NAME="*._report._dmarc"
-  EXISTING_DNS=$(cf_get "${CF_API}/zones/${CLOUDFLARE_ZONE_ID}/dns_records?type=TXT&name=${RECORD_NAME}.${DMARC_DOMAIN}" || echo '{"result":[]}')
-  DNS_EXISTS=$(echo "$EXISTING_DNS" | python3 -c "import sys,json; print('yes' if json.load(sys.stdin).get('result') else 'no')" 2>/dev/null || echo "no")
-
-  if [ "$DNS_EXISTS" = "no" ]; then
-    echo "  Creating wildcard ${RECORD_NAME}.${DMARC_DOMAIN} TXT record..."
-    DNS_RESPONSE=$(cf_post -X POST "${CF_API}/zones/${CLOUDFLARE_ZONE_ID}/dns_records" \
-      -d "{
-        \"type\": \"TXT\",
-        \"name\": \"${RECORD_NAME}\",
-        \"content\": \"\\\"v=DMARC1;\\\"\",
-        \"ttl\": 3600
-      }")
-    if echo "$DNS_RESPONSE" | python3 -c "import sys,json; assert json.load(sys.stdin).get('success')" 2>/dev/null; then
-      echo "  Created: ${RECORD_NAME}.${DMARC_DOMAIN} (accepts reports from any domain)"
-    else
-      echo "  WARNING: Failed to create wildcard _report._dmarc record:"
-      echo "$DNS_RESPONSE" | python3 -c "import sys,json; [print(f'    {e[\"message\"]}') for e in json.load(sys.stdin).get('errors',[])]" 2>/dev/null || echo "  $DNS_RESPONSE"
-    fi
-  else
-    echo "  ${RECORD_NAME}.${DMARC_DOMAIN} already exists"
-  fi
+  upsert_report_dmarc_record "*._report._dmarc" "*._report._dmarc.${DMARC_DOMAIN} (wildcard)"
 fi
 
 # --- Step 7: Cloudflare Access ---
