@@ -25,6 +25,7 @@ A single Cloudflare Worker handles both DMARC report ingestion (via email) and s
   - DNS: Edit
   - Email Routing Rules: Edit
   - Access: Apps and Policies: Edit
+  - Access: Groups: Edit _(only required if `ACCESS_ALLOWED_IPS` is set)_
 
 ## Manual Prerequisites (One-Time)
 
@@ -50,14 +51,14 @@ pnpm run deploy
 On first run, `pnpm run deploy` creates a `.env` file for you to fill in:
 
 ```bash
-CLOUDFLARE_API_TOKEN=        # Your API token
-CLOUDFLARE_ACCOUNT_ID=       # Account ID (dashboard → Overview → right sidebar)
-CLOUDFLARE_ZONE_ID=          # Zone ID (same location — domain auto-detected from zone)
-DMARC_EMAIL=dmarc            # Local part (receives at dmarc@yourdomain.com)
-REPORT_AUTHORIZED_DOMAINS=   # Optional: comma-separated domains, or leave empty for wildcard
-ACCESS_ALLOWED_EMAILS=        # specific addresses, e.g. "you@gmail.com,coworker@outlook.com"
-ACCESS_ALLOWED_EMAIL_DOMAINS= # email domains, e.g. "company.com" (OR'd with emails above)
-ACCESS_ALLOWED_IPS=           # IP/CIDR ranges, e.g. "10.0.0.0/8" (AND'd with identity above)
+CLOUDFLARE_API_TOKEN=
+CLOUDFLARE_ACCOUNT_ID=
+CLOUDFLARE_ZONE_ID=
+DMARC_EMAIL=dmarc
+REPORT_AUTHORIZED_DOMAINS=
+ACCESS_ALLOWED_EMAILS=
+ACCESS_ALLOWED_EMAIL_DOMAINS=
+ACCESS_ALLOWED_IPS=
 ```
 
 Then run `pnpm run deploy` again.

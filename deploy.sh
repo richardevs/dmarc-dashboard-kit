@@ -168,7 +168,7 @@ if [ -n "${REPORT_AUTHORIZED_DOMAINS:-}" ]; then
         -d "{
           \"type\": \"TXT\",
           \"name\": \"${RECORD_NAME}\",
-          \"content\": \"v=DMARC1;\",
+          \"content\": \"\\\"v=DMARC1;\\\"\",
           \"ttl\": 3600
         }")
       if echo "$DNS_RESPONSE" | python3 -c "import sys,json; assert json.load(sys.stdin).get('success')" 2>/dev/null; then
@@ -193,7 +193,7 @@ else
       -d "{
         \"type\": \"TXT\",
         \"name\": \"${RECORD_NAME}\",
-        \"content\": \"v=DMARC1;\",
+        \"content\": \"\\\"v=DMARC1;\\\"\",
         \"ttl\": 3600
       }")
     if echo "$DNS_RESPONSE" | python3 -c "import sys,json; assert json.load(sys.stdin).get('success')" 2>/dev/null; then
@@ -262,57 +262,56 @@ else
   fi
 fi
 
-# Ensure Access policy exists
+# Ensure Access policy exists/updated
 if [ -n "$APP_ID" ]; then
   EXISTING_POLICIES=$(cf_get "${CF_API}/accounts/${CLOUDFLARE_ACCOUNT_ID}/access/apps/${APP_ID}/policies" || echo '{"result":[]}')
-  POLICY_EXISTS=$(echo "$EXISTING_POLICIES" | python3 -c "import sys,json; print('yes' if json.load(sys.stdin).get('result') else 'no')" 2>/dev/null || echo "no")
+  POLICY_ID=$(echo "$EXISTING_POLICIES" | python3 -c "import sys,json; r=json.load(sys.stdin).get('result',[]); print(r[0]['id'] if r else '')" 2>/dev/null || echo "")
 
-  if [ "$POLICY_EXISTS" = "no" ]; then
-    echo "  Creating Access policy..."
-
-    # When both identity rules and IPs are set, create/update an Access Group for the IPs.
-    # Rules within a group's include are OR'd, then the group is AND'd via require.
-    # This avoids the flat-require AND problem where multiple IPs require matching all at once.
-    IP_GROUP_ID=""
-    if [ -n "${ACCESS_ALLOWED_IPS:-}" ] && { [ -n "${ACCESS_ALLOWED_EMAILS:-}" ] || [ -n "${ACCESS_ALLOWED_EMAIL_DOMAINS:-}" ]; }; then
-      GROUP_INCLUDE=$(python3 -c "
+  # When both identity rules and IPs are set, always sync the Access Group for the IPs.
+  # Rules within a group's include are OR'd, then the group is AND'd via require.
+  # This avoids the flat-require AND problem where multiple IPs require matching all at once.
+  IP_GROUP_ID=""
+  if [ -n "${ACCESS_ALLOWED_IPS:-}" ] && { [ -n "${ACCESS_ALLOWED_EMAILS:-}" ] || [ -n "${ACCESS_ALLOWED_EMAIL_DOMAINS:-}" ]; }; then
+    GROUP_INCLUDE=$(python3 -c "
 import os, json
 ips = os.environ.get('ACCESS_ALLOWED_IPS', '')
 rules = [{'ip': {'ip': c.strip()}} for c in ips.split(',') if c.strip()]
 print(json.dumps(rules))
 ")
-      EXISTING_GROUPS=$(cf_get "${CF_API}/accounts/${CLOUDFLARE_ACCOUNT_ID}/access/groups" || echo '{"result":[]}')
-      IP_GROUP_ID=$(echo "$EXISTING_GROUPS" | python3 -c "
+    EXISTING_GROUPS=$(cf_get "${CF_API}/accounts/${CLOUDFLARE_ACCOUNT_ID}/access/groups" || echo '{"result":[]}')
+    IP_GROUP_ID=$(echo "$EXISTING_GROUPS" | python3 -c "
 import sys, json
 groups = json.load(sys.stdin).get('result', [])
 match = [g for g in groups if g.get('name') == 'DMARC Dashboard IPs']
 print(match[0]['id'] if match else '')
 " 2>/dev/null || echo "")
 
-      if [ -z "$IP_GROUP_ID" ]; then
-        GROUP_RESPONSE=$(cf_post -X POST "${CF_API}/accounts/${CLOUDFLARE_ACCOUNT_ID}/access/groups" \
-          -d "{\"name\": \"DMARC Dashboard IPs\", \"include\": ${GROUP_INCLUDE}}")
-        IP_GROUP_ID=$(echo "$GROUP_RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin)['result']['id'])" 2>/dev/null || echo "")
-        if [ -n "$IP_GROUP_ID" ]; then
-          echo "  Created Access group for IPs: $IP_GROUP_ID"
-        else
-          echo "  WARNING: Failed to create Access group for IPs:"
-          echo "$GROUP_RESPONSE" | python3 -c "import sys,json; [print(f'    {e[\"message\"]}') for e in json.load(sys.stdin).get('errors',[])]" 2>/dev/null || echo "  $GROUP_RESPONSE"
-        fi
+    if [ -z "$IP_GROUP_ID" ]; then
+      GROUP_RESPONSE=$(cf_post -X POST "${CF_API}/accounts/${CLOUDFLARE_ACCOUNT_ID}/access/groups" \
+        -d "{\"name\": \"DMARC Dashboard IPs\", \"include\": ${GROUP_INCLUDE}}")
+      IP_GROUP_ID=$(echo "$GROUP_RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin)['result']['id'])" 2>/dev/null || echo "")
+      if [ -n "$IP_GROUP_ID" ]; then
+        echo "  Created Access group for IPs: $IP_GROUP_ID"
       else
-        UPDATE_GROUP=$(cf_post -X PUT "${CF_API}/accounts/${CLOUDFLARE_ACCOUNT_ID}/access/groups/${IP_GROUP_ID}" \
-          -d "{\"name\": \"DMARC Dashboard IPs\", \"include\": ${GROUP_INCLUDE}}")
-        if echo "$UPDATE_GROUP" | python3 -c "import sys,json; assert json.load(sys.stdin).get('success')" 2>/dev/null; then
-          echo "  Updated Access group for IPs: $IP_GROUP_ID"
-        else
-          echo "  WARNING: Failed to update Access group for IPs:"
-          echo "$UPDATE_GROUP" | python3 -c "import sys,json; [print(f'    {e[\"message\"]}') for e in json.load(sys.stdin).get('errors',[])]" 2>/dev/null || echo "  $UPDATE_GROUP"
-        fi
+        echo "  ERROR: Failed to create Access group for IPs (token needs Access: Groups: Edit):"
+        echo "$GROUP_RESPONSE" | python3 -c "import sys,json; [print(f'    {e[\"message\"]}') for e in json.load(sys.stdin).get('errors',[])]" 2>/dev/null || echo "  $GROUP_RESPONSE"
+        exit 1
       fi
-      export IP_GROUP_ID
+    else
+      UPDATE_GROUP=$(cf_post -X PUT "${CF_API}/accounts/${CLOUDFLARE_ACCOUNT_ID}/access/groups/${IP_GROUP_ID}" \
+        -d "{\"name\": \"DMARC Dashboard IPs\", \"include\": ${GROUP_INCLUDE}}")
+      if echo "$UPDATE_GROUP" | python3 -c "import sys,json; assert json.load(sys.stdin).get('success')" 2>/dev/null; then
+        echo "  Updated Access group for IPs: $IP_GROUP_ID"
+      else
+        echo "  ERROR: Failed to update Access group for IPs:"
+        echo "$UPDATE_GROUP" | python3 -c "import sys,json; [print(f'    {e[\"message\"]}') for e in json.load(sys.stdin).get('errors',[])]" 2>/dev/null || echo "  $UPDATE_GROUP"
+        exit 1
+      fi
     fi
+    export IP_GROUP_ID
+  fi
 
-    INCLUDE_RULES=$(python3 -c "
+  INCLUDE_RULES=$(python3 -c "
 import os, json
 rules = []
 emails = os.environ.get('ACCESS_ALLOWED_EMAILS', '')
@@ -328,7 +327,7 @@ if not has_identity and ips:
 print(json.dumps(rules))
 ")
 
-    REQUIRE_RULES=$(python3 -c "
+  REQUIRE_RULES=$(python3 -c "
 import os, json
 group_id = os.environ.get('IP_GROUP_ID', '')
 if group_id:
@@ -338,25 +337,38 @@ else:
 print(json.dumps(rules))
 ")
 
+  POLICY_BODY="{
+    \"name\": \"DMARC Dashboard Allow\",
+    \"decision\": \"allow\",
+    \"include\": ${INCLUDE_RULES},
+    \"require\": ${REQUIRE_RULES}
+  }"
+
+  POLICY_SUMMARY=""
+  [ -n "${ACCESS_ALLOWED_EMAILS:-}" ] && POLICY_SUMMARY="${POLICY_SUMMARY} emails=[${ACCESS_ALLOWED_EMAILS}]"
+  [ -n "${ACCESS_ALLOWED_EMAIL_DOMAINS:-}" ] && POLICY_SUMMARY="${POLICY_SUMMARY} domains=[${ACCESS_ALLOWED_EMAIL_DOMAINS}]"
+  [ -n "${ACCESS_ALLOWED_IPS:-}" ] && POLICY_SUMMARY="${POLICY_SUMMARY} ips=[${ACCESS_ALLOWED_IPS}]"
+
+  if [ -z "$POLICY_ID" ]; then
+    echo "  Creating Access policy..."
     POLICY_RESPONSE=$(cf_post -X POST "${CF_API}/accounts/${CLOUDFLARE_ACCOUNT_ID}/access/apps/${APP_ID}/policies" \
-      -d "{
-        \"name\": \"DMARC Dashboard Allow\",
-        \"decision\": \"allow\",
-        \"include\": ${INCLUDE_RULES},
-        \"require\": ${REQUIRE_RULES}
-      }")
+      -d "$POLICY_BODY")
     if echo "$POLICY_RESPONSE" | python3 -c "import sys,json; assert json.load(sys.stdin).get('success')" 2>/dev/null; then
-      POLICY_SUMMARY=""
-      [ -n "${ACCESS_ALLOWED_EMAILS:-}" ] && POLICY_SUMMARY="${POLICY_SUMMARY} emails=[${ACCESS_ALLOWED_EMAILS}]"
-      [ -n "${ACCESS_ALLOWED_EMAIL_DOMAINS:-}" ] && POLICY_SUMMARY="${POLICY_SUMMARY} domains=[${ACCESS_ALLOWED_EMAIL_DOMAINS}]"
-      [ -n "${ACCESS_ALLOWED_IPS:-}" ] && POLICY_SUMMARY="${POLICY_SUMMARY} ips=[${ACCESS_ALLOWED_IPS}]"
       echo "  Created Access policy:${POLICY_SUMMARY}"
     else
       echo "  WARNING: Failed to create Access policy:"
       echo "$POLICY_RESPONSE" | python3 -c "import sys,json; [print(f'    {e[\"message\"]}') for e in json.load(sys.stdin).get('errors',[])]" 2>/dev/null || echo "  $POLICY_RESPONSE"
     fi
   else
-    echo "  Access policy already exists"
+    echo "  Updating Access policy..."
+    POLICY_RESPONSE=$(cf_post -X PUT "${CF_API}/accounts/${CLOUDFLARE_ACCOUNT_ID}/access/apps/${APP_ID}/policies/${POLICY_ID}" \
+      -d "$POLICY_BODY")
+    if echo "$POLICY_RESPONSE" | python3 -c "import sys,json; assert json.load(sys.stdin).get('success')" 2>/dev/null; then
+      echo "  Updated Access policy:${POLICY_SUMMARY}"
+    else
+      echo "  WARNING: Failed to update Access policy:"
+      echo "$POLICY_RESPONSE" | python3 -c "import sys,json; [print(f'    {e[\"message\"]}') for e in json.load(sys.stdin).get('errors',[])]" 2>/dev/null || echo "  $POLICY_RESPONSE"
+    fi
   fi
 fi
 
