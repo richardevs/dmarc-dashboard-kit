@@ -15,6 +15,6 @@ database_id = ""  # auto-filled by deploy.sh
 [observability]
 [observability.logs]
 enabled = true
-invocation_logs = true   # per-email "ok"/"exception" summary events; set false to keep only console logs
+invocation_logs = false   # the fetch() handler also serves the dashboard, so per-invocation logs would capture every HTTP request — keep only our console logs
 [observability.traces]
 enabled = false
