@@ -10,9 +10,11 @@ binding = "DB"
 database_name = "dmarc-reports"
 database_id = ""  # auto-filled by deploy.sh
 
-# [observability]
-# [observability.logs]
-# enabled = true
-# invocation_logs = true
-# [observability.traces]
-# enabled = false
+# Persisted, queryable logs in the Cloudflare dashboard (3-day retention).
+# Free-tier friendly at this worker's volume — see https://developers.cloudflare.com/workers/observability/logs/workers-logs/
+[observability]
+[observability.logs]
+enabled = true
+invocation_logs = true   # per-email "ok"/"exception" summary events; set false to keep only console logs
+[observability.traces]
+enabled = false

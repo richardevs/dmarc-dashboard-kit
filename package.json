@@ -1,6 +1,6 @@
 {
   "name": "dmarc-dashboard-kit",
-  "version": "0.1.0",
+  "version": "1.0.1",
   "private": true,
   "scripts": {
     "dev": "wrangler dev",
@@ -9,17 +9,15 @@
     "migrate:local": "for f in $(ls migrations/*.sql | sort); do wrangler d1 execute dmarc-reports --file=$f --local; done"
   },
   "dependencies": {
-    "fast-xml-parser": "^5.5.7",
-    "mime-db": "^1.54.0",
+    "fast-xml-parser": "^5.8.0",
     "pako": "^2.1.0",
     "postal-mime": "^2.7.4",
     "unzipit": "^1.4.3"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20260317.1",
-    "@types/mime-db": "^1.43.6",
+    "@cloudflare/workers-types": "^4.20260603.1",
     "@types/pako": "^2.0.4",
     "typescript": "^5.9.3",
-    "wrangler": "^4.76.0"
+    "wrangler": "^4.97.0"
   }
 }

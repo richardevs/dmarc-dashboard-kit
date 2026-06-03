@@ -1,5 +1,4 @@
 import PostalMime from "postal-mime";
-import mimeDb from "mime-db";
 import * as unzipit from "unzipit";
 import * as pako from "pako";
 import { XMLParser } from "fast-xml-parser";
@@ -19,67 +18,88 @@ export async function handleEmail(
   env: Env,
   _ctx: ExecutionContext
 ): Promise<void> {
+  // Parse the raw MIME message. A malformed message will never parse on retry,
+  // so log and drop it rather than throwing (which would trigger sender retries).
+  let email;
   try {
     const parser = new PostalMime();
     const rawEmail = new Response(message.raw);
-    const email = await parser.parse(await rawEmail.arrayBuffer());
-
-    if (!email.attachments || email.attachments.length === 0) {
-      console.error("DMARC email rejected: no attachments", { from: message.from });
-      return;
-    }
-
-    const attachment = email.attachments[0];
-    const content =
-      attachment.content instanceof ArrayBuffer
-        ? attachment.content
-        : typeof attachment.content === "string"
-          ? new TextEncoder().encode(attachment.content).buffer as ArrayBuffer
-          : (attachment.content as Uint8Array).buffer as ArrayBuffer;
-    const reportJSON = await getDMARCReportXML({ mimeType: attachment.mimeType, content });
-    const rows = getReportRows(reportJSON);
-
-    const reportId = rows[0]?.reportMetadataReportId ?? "unknown";
-    const domain = rows[0]?.policyPublishedDomain ?? "unknown";
-
-    try {
-      await insertReport(env.DB, rows);
-    } catch (insertErr) {
-      console.error("DMARC insert failed:", {
-        reportId,
-        domain,
-        recordCount: rows.length,
-        error: insertErr instanceof Error ? insertErr.message : insertErr,
-      });
-      throw insertErr;
-    }
+    email = await parser.parse(await rawEmail.arrayBuffer());
   } catch (err) {
-    console.error("DMARC email processing failed:", err instanceof Error ? err.message : err);
-    throw err;
+    console.error("DMARC email parse failed:", {
+      from: message.from,
+      error: err instanceof Error ? err.message : err,
+    });
+    return;
+  }
+
+  if (!email.attachments || email.attachments.length === 0) {
+    console.error("DMARC email rejected: no attachments", { from: message.from });
+    return;
+  }
+
+  const attachment = email.attachments[0];
+  const content =
+    attachment.content instanceof ArrayBuffer
+      ? attachment.content
+      : typeof attachment.content === "string"
+        ? new TextEncoder().encode(attachment.content).buffer as ArrayBuffer
+        : (attachment.content as Uint8Array).buffer as ArrayBuffer;
+
+  // Extract and parse the report. Senders mislabel the MIME type (e.g. au.com
+  // sends gzip as application/octet-stream), so we sniff the content itself.
+  // Any failure here is permanent for this message — log and drop, don't retry.
+  let rows: DmarcRecordRow[];
+  try {
+    const reportJSON = await getDMARCReportXML({ content });
+    rows = getReportRows(reportJSON);
+  } catch (err) {
+    console.error("DMARC report extraction failed:", {
+      from: message.from,
+      filename: attachment.filename,
+      mimeType: attachment.mimeType,
+      size: content.byteLength,
+      error: err instanceof Error ? err.message : err,
+    });
+    return;
+  }
+
+  const reportId = rows[0]?.reportMetadataReportId ?? "unknown";
+  const domain = rows[0]?.policyPublishedDomain ?? "unknown";
+
+  // A D1 insert failure is transient — throw so Email Routing retries delivery.
+  try {
+    await insertReport(env.DB, rows);
+  } catch (insertErr) {
+    console.error("DMARC insert failed:", {
+      reportId,
+      domain,
+      recordCount: rows.length,
+      error: insertErr instanceof Error ? insertErr.message : insertErr,
+    });
+    throw insertErr;
   }
 }
 
-async function getDMARCReportXML(attachment: {
-  mimeType: string;
-  content: ArrayBuffer;
-}) {
-  let xml: string;
-  const xmlParser = new XMLParser({ parseTagValue: false });
-  const mimeEntry = mimeDb[attachment.mimeType];
-  const extension = mimeEntry?.extensions?.[0] || "";
+async function getDMARCReportXML(attachment: { content: ArrayBuffer }) {
+  const bytes = new Uint8Array(attachment.content);
+  if (bytes.length < 4) {
+    throw new Error(`attachment too small to parse (${bytes.length} bytes)`);
+  }
 
-  switch (extension) {
-    case "gz":
-      xml = pako.inflate(new Uint8Array(attachment.content), { to: "string" });
-      break;
-    case "zip":
-      xml = await getXMLFromZip(attachment.content);
-      break;
-    case "xml":
-      xml = new TextDecoder().decode(attachment.content);
-      break;
-    default:
-      throw new Error(`unknown extension: ${extension}`);
+  const xmlParser = new XMLParser({ parseTagValue: false });
+  let xml: string;
+
+  // Detect the container by magic bytes rather than the (often wrong) MIME type.
+  if (bytes[0] === 0x1f && bytes[1] === 0x8b) {
+    // gzip
+    xml = pako.inflate(bytes, { to: "string" });
+  } else if (bytes[0] === 0x50 && bytes[1] === 0x4b) {
+    // zip ("PK")
+    xml = await getXMLFromZip(attachment.content);
+  } else {
+    // assume raw XML — the parser will reject it if it isn't
+    xml = new TextDecoder().decode(attachment.content);
   }
 
   return xmlParser.parse(xml);

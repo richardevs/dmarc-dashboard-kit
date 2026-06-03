@@ -24,6 +24,11 @@ set -a
 eval "$(sed 's/[[:space:]]*#.*$//' "$ENV_FILE")"
 set +a
 
+# Run wrangler non-interactively. Without this, recent wrangler versions print a
+# "Cloudflare agent skills are available..." banner to stdout, which pollutes the
+# --json output we parse below and breaks the D1 existence check.
+export CI=true
+
 # Validate required vars
 for var in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID CLOUDFLARE_ZONE_ID DMARC_EMAIL; do
   if [ -z "${!var:-}" ]; then
@@ -73,7 +78,7 @@ if [ -n "$EXISTING_ID" ]; then
   DB_ID="$EXISTING_ID"
 else
   echo "  Creating database '$DB_NAME'..."
-  CREATE_OUTPUT=$(npx wrangler d1 create "$DB_NAME" 2>&1)
+  CREATE_OUTPUT=$(npx wrangler d1 create "$DB_NAME" 2>&1) || true
   DB_ID=$(echo "$CREATE_OUTPUT" | grep -o 'database_id = "[^"]*"' | cut -d'"' -f2)
   if [ -z "$DB_ID" ]; then
     echo "  ERROR: Could not extract database_id:"
