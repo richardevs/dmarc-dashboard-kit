@@ -124,15 +124,25 @@ cleanup_zone() {
   local ADDRESS="${DMARC_EMAIL}@${DOMAIN}"
 
   # Gather everything that would be deleted before touching anything.
+  # Match routing rules by their worker action, not by the ${DMARC_EMAIL}
+  # address — that way a changed DMARC_EMAIL (or a stale rule left by a prior
+  # deploy under a different address) is still caught rather than orphaned.
   local RULES RULE_ROWS
   RULES=$(cf_get "${CF_API}/zones/${ZONE_ID}/email/routing/rules?per_page=50" || echo '{"result":[]}')
-  RULE_ROWS=$(echo "$RULES" | ADDRESS="$ADDRESS" python3 -c "
+  RULE_ROWS=$(echo "$RULES" | WORKER_NAME="$WORKER_NAME" python3 -c "
 import sys, json, os
-addr = os.environ['ADDRESS']
+worker = os.environ['WORKER_NAME']
 rules = json.load(sys.stdin).get('result', [])
 for r in rules:
-    if any(m.get('field') == 'to' and m.get('value') == addr for m in r.get('matchers', [])):
-        print(r['id'] + '\t' + (r.get('name') or '(unnamed rule)'))
+    targets_worker = any(
+        a.get('type') == 'worker' and worker in (a.get('value') or [])
+        for a in r.get('actions', [])
+    )
+    if not targets_worker:
+        continue
+    to = next((m.get('value') for m in r.get('matchers', []) if m.get('field') == 'to'), '')
+    label = r.get('name') or to or '(unnamed rule)'
+    print(r['id'] + '\t' + label)
 " 2>/dev/null || echo "")
 
   local DNS DNS_ROWS
@@ -149,7 +159,7 @@ for r in recs:
   echo ""
   echo "Will delete from zone ${DOMAIN}:"
   echo ""
-  echo "  Email routing rules (${ADDRESS} → worker):"
+  echo "  Email routing rules (→ ${WORKER_NAME}):"
   if [ -z "$RULE_ROWS" ]; then
     echo "    (none found)"
   else
