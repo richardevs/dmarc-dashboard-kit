@@ -11,6 +11,7 @@
   // IP geo enrichment state
   let ipInfoMap: Record<string, IpInfo> = $state({});
   let ipInfoLoading: boolean = $state(false);
+  let ipInfoInflight = false;
   let rateLimitCountdown: number = $state(0);
   let countdownInterval: ReturnType<typeof setInterval> | null = null;
 
@@ -29,20 +30,26 @@
   }
 
   async function loadIpInfo() {
-    let ips: string[];
-    if (activeTab === "top") {
-      ips = senders.map((s) => s.source_ip);
-    } else {
-      ips = await getAllSenderIps(days, domain || undefined, date || undefined);
-    }
-    if (ips.length === 0) return;
-    ipInfoLoading = true;
+    if (ipInfoInflight) return;
+    ipInfoInflight = true;
     try {
-      const result = await fetchIpInfo(ips);
-      ipInfoMap = { ...ipInfoMap, ...result.data };
-      if (result.retryAfter > 0) startCountdown(result.retryAfter);
+      let ips: string[];
+      if (activeTab === "top") {
+        ips = senders.map((s) => s.source_ip);
+      } else {
+        ips = await getAllSenderIps(days, domain || undefined, date || undefined);
+      }
+      if (ips.length === 0) return;
+      ipInfoLoading = true;
+      try {
+        const result = await fetchIpInfo(ips);
+        ipInfoMap = { ...ipInfoMap, ...result.data };
+        if (result.retryAfter > 0) startCountdown(result.retryAfter);
+      } finally {
+        ipInfoLoading = false;
+      }
     } finally {
-      ipInfoLoading = false;
+      ipInfoInflight = false;
     }
   }
 

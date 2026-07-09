@@ -41,12 +41,12 @@
   let selectedDate: string = $state("");
   let error: string = $state("");
 
-  async function loadData() {
-    clearPageCache();
-    selectedDate = "";
-    error = "";
+  let requestToken = 0;
+
+  async function fetchAll() {
     reportSort = "";
     reportDir = "";
+    const token = ++requestToken;
     try {
       const domain = selectedDomain || undefined;
       const [s, ts, senders, auth, reps] = await Promise.all([
@@ -56,19 +56,29 @@
         getDomainAuth(selectedDays),
         getReports("1", "20", domain),
       ]);
+      if (token !== requestToken) return;
       summary = s;
       timeSeries = ts;
       topSenders = senders;
       domainAuth = auth;
       reports = reps;
     } catch (e) {
+      if (token !== requestToken) return;
       error = e instanceof Error ? e.message : "Failed to load data";
     }
+  }
+
+  async function loadData() {
+    clearPageCache();
+    selectedDate = "";
+    error = "";
+    await fetchAll();
   }
 
   async function loadDateData(date: string) {
     reportSort = "";
     reportDir = "";
+    const token = ++requestToken;
     try {
       const domain = selectedDomain || undefined;
       const [s, senders, auth, reps] = await Promise.all([
@@ -77,33 +87,13 @@
         getDomainAuth(selectedDays, date),
         getReports("1", "20", domain, undefined, undefined, date),
       ]);
+      if (token !== requestToken) return;
       summary = s;
       topSenders = senders;
       domainAuth = auth;
       reports = reps;
     } catch (e) {
-      error = e instanceof Error ? e.message : "Failed to load data";
-    }
-  }
-
-  async function revertData() {
-    reportSort = "";
-    reportDir = "";
-    try {
-      const domain = selectedDomain || undefined;
-      const [s, ts, senders, auth, reps] = await Promise.all([
-        getSummary(selectedDays, domain),
-        getTimeSeries(selectedDays, domain),
-        getTopSenders(selectedDays, "10", domain),
-        getDomainAuth(selectedDays),
-        getReports("1", "20", domain),
-      ]);
-      summary = s;
-      timeSeries = ts;
-      topSenders = senders;
-      domainAuth = auth;
-      reports = reps;
-    } catch (e) {
+      if (token !== requestToken) return;
       error = e instanceof Error ? e.message : "Failed to load data";
     }
   }
@@ -111,7 +101,7 @@
   function handleDateClick(date: string) {
     if (!date) {
       selectedDate = "";
-      revertData();
+      fetchAll();
     } else {
       selectedDate = date;
       loadDateData(date);
