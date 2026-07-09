@@ -6,6 +6,15 @@ WRANGLER_TOML="wrangler.toml"
 WORKER_NAME="dmarc-dashboard-kit"
 ENV_FILE=".env"
 
+# --- Colors (disabled when not a TTY or when NO_COLOR is set) ---
+if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
+  C_RESET=$'\033[0m'; C_BOLD=$'\033[1m'; C_DIM=$'\033[2m'
+  C_GREEN=$'\033[32m'; C_CYAN=$'\033[36m'; C_YELLOW=$'\033[33m'
+else
+  C_RESET=""; C_BOLD=""; C_DIM=""
+  C_GREEN=""; C_CYAN=""; C_YELLOW=""
+fi
+
 # --- Parse arguments ---
 MODE="deploy"
 CLEANUP_ZONE_ID=""
@@ -548,16 +557,16 @@ print(json.dumps(rules))
 fi
 
 echo ""
-echo "=== Deploy complete! ==="
+echo "${C_GREEN}${C_BOLD}=== Deploy complete! ===${C_RESET}"
 echo ""
-echo "Your DMARC dashboard is at: ${WORKER_URL}"
+echo "Your DMARC dashboard is at: ${C_CYAN}${WORKER_URL}${C_RESET}"
 echo ""
-echo "Manual prerequisite (one-time):"
-echo "  Enable Email Routing for ${DMARC_DOMAIN} in Cloudflare dashboard:"
-echo "  https://dash.cloudflare.com → ${DMARC_DOMAIN} → Email → Email Routing → Enable"
+echo "${C_BOLD}Manual prerequisite (one-time):${C_RESET}"
+echo "  Enable Email Routing for ${C_CYAN}${DMARC_DOMAIN}${C_RESET} in Cloudflare dashboard:"
+echo "  ${C_DIM}https://dash.cloudflare.com → ${DMARC_DOMAIN} → Email → Email Routing → Enable${C_RESET}"
 echo ""
-echo "To monitor a domain, add a DMARC policy TXT record on that domain:"
-echo "  _dmarc.example.com  TXT  \"v=DMARC1; p=none; rua=mailto:${DMARC_ADDRESS}\""
+echo "${C_BOLD}To monitor a domain, add a DMARC policy TXT record on that domain:${C_RESET}"
+echo "  ${C_DIM}_dmarc.example.com  TXT  \"v=DMARC1; p=none; rua=mailto:${DMARC_ADDRESS}\"${C_RESET}"
 echo ""
-echo "WARNING: p=none only monitors — it does NOT block spoofed emails."
-echo "  Move to p=quarantine then p=reject once legitimate senders pass DKIM/SPF."
+echo "${C_YELLOW}${C_BOLD}WARNING:${C_RESET}${C_YELLOW} p=none only monitors — it does NOT block spoofed emails.${C_RESET}"
+echo "${C_YELLOW}  Move to p=quarantine then p=reject once legitimate senders pass DKIM/SPF.${C_RESET}"
