@@ -6,7 +6,36 @@ WRANGLER_TOML="wrangler.toml"
 WORKER_NAME="dmarc-dashboard-kit"
 ENV_FILE=".env"
 
-echo "=== DMARC Dashboard Kit Deploy ==="
+# --- Parse arguments ---
+MODE="deploy"
+CLEANUP_ZONE_ID=""
+ASSUME_YES="false"
+
+for arg in "$@"; do
+  case "$arg" in
+    --cleanup) MODE="cleanup" ;;
+    --zone-id=*) CLEANUP_ZONE_ID="${arg#--zone-id=}" ;;
+    --yes|-y) ASSUME_YES="true" ;;
+    -h|--help)
+      cat <<'USAGE'
+Usage:
+  deploy.sh                     Deploy / update all resources (idempotent).
+  deploy.sh --cleanup [opts]    Remove the zone-scoped resources for a receiving
+                                domain you no longer use: the dmarc@<domain> email
+                                routing rule and the _report._dmarc TXT records.
+                                Never touches the worker, D1, stored reports, or
+                                Cloudflare Access.
+
+Cleanup options:
+  --zone-id=<id>   Zone to clean (defaults to CLOUDFLARE_ZONE_ID in .env). Pass
+                   the OLD zone id when migrating to a new receiving domain.
+  --yes, -y        Skip the confirmation prompt.
+USAGE
+      exit 0
+      ;;
+    *) echo "Unknown argument: $arg (try --help)"; exit 1 ;;
+  esac
+done
 
 # --- Load config from .env ---
 if [ ! -f "$ENV_FILE" ]; then
@@ -29,21 +58,30 @@ set +a
 # --json output we parse below and breaks the D1 existence check.
 export CI=true
 
-# Validate required vars
-for var in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID CLOUDFLARE_ZONE_ID DMARC_EMAIL; do
+# Validate required vars (needed for both deploy and cleanup)
+for var in CLOUDFLARE_API_TOKEN DMARC_EMAIL; do
   if [ -z "${!var:-}" ]; then
     echo "ERROR: $var is not set in $ENV_FILE"
     exit 1
   fi
 done
 
-if [ -z "${ACCESS_ALLOWED_EMAILS:-}" ] && [ -z "${ACCESS_ALLOWED_EMAIL_DOMAINS:-}" ] && [ -z "${ACCESS_ALLOWED_IPS:-}" ]; then
-  echo "ERROR: Set at least one of ACCESS_ALLOWED_EMAILS, ACCESS_ALLOWED_EMAIL_DOMAINS, or ACCESS_ALLOWED_IPS in $ENV_FILE"
-  exit 1
-fi
+if [ "$MODE" = "deploy" ]; then
+  for var in CLOUDFLARE_ACCOUNT_ID CLOUDFLARE_ZONE_ID; do
+    if [ -z "${!var:-}" ]; then
+      echo "ERROR: $var is not set in $ENV_FILE"
+      exit 1
+    fi
+  done
 
-if [ -z "${ACCESS_ALLOWED_EMAILS:-}" ] && [ -z "${ACCESS_ALLOWED_EMAIL_DOMAINS:-}" ] && [ -n "${ACCESS_ALLOWED_IPS:-}" ]; then
-  echo "  WARNING: Only ACCESS_ALLOWED_IPS is set — anyone from these IP ranges can access the dashboard without email identity verification."
+  if [ -z "${ACCESS_ALLOWED_EMAILS:-}" ] && [ -z "${ACCESS_ALLOWED_EMAIL_DOMAINS:-}" ] && [ -z "${ACCESS_ALLOWED_IPS:-}" ]; then
+    echo "ERROR: Set at least one of ACCESS_ALLOWED_EMAILS, ACCESS_ALLOWED_EMAIL_DOMAINS, or ACCESS_ALLOWED_IPS in $ENV_FILE"
+    exit 1
+  fi
+
+  if [ -z "${ACCESS_ALLOWED_EMAILS:-}" ] && [ -z "${ACCESS_ALLOWED_EMAIL_DOMAINS:-}" ] && [ -n "${ACCESS_ALLOWED_IPS:-}" ]; then
+    echo "  WARNING: Only ACCESS_ALLOWED_IPS is set — anyone from these IP ranges can access the dashboard without email identity verification."
+  fi
 fi
 
 CF_API="https://api.cloudflare.com/client/v4"
@@ -51,6 +89,147 @@ AUTH_HEADER="Authorization: Bearer ${CLOUDFLARE_API_TOKEN}"
 
 cf_get()  { curl -s -H "$AUTH_HEADER" "$@"; }
 cf_post() { curl -s -H "$AUTH_HEADER" -H "Content-Type: application/json" "$@"; }
+
+# --- Cleanup mode: remove the zone-scoped resources for a retired domain ---
+# Only touches the email routing rule and _report._dmarc TXT records on the given
+# zone. The worker, D1 database, stored reports, and Access are account-scoped and
+# shared, so they are deliberately left untouched.
+cleanup_zone() {
+  local ZONE_ID="${CLEANUP_ZONE_ID:-${CLOUDFLARE_ZONE_ID:-}}"
+  if [ -z "$ZONE_ID" ]; then
+    echo "ERROR: no zone to clean up. Pass --zone-id=<id> or set CLOUDFLARE_ZONE_ID in $ENV_FILE."
+    exit 1
+  fi
+
+  echo "=== DMARC Dashboard Kit Cleanup ==="
+  echo ""
+  echo "Detecting domain from zone ${ZONE_ID}..."
+  local ZONE_RESPONSE DOMAIN
+  ZONE_RESPONSE=$(cf_get "${CF_API}/zones/${ZONE_ID}")
+  DOMAIN=$(echo "$ZONE_RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin)['result']['name'])" 2>/dev/null || echo "")
+  if [ -z "$DOMAIN" ]; then
+    echo "  ERROR: Could not detect domain from zone ID. Check the zone id and API token."
+    echo "$ZONE_RESPONSE" | python3 -c "import sys,json; [print(f'  {e[\"message\"]}') for e in json.load(sys.stdin).get('errors',[])]" 2>/dev/null || true
+    exit 1
+  fi
+  local ADDRESS="${DMARC_EMAIL}@${DOMAIN}"
+
+  # Gather everything that would be deleted before touching anything.
+  local RULES RULE_ROWS
+  RULES=$(cf_get "${CF_API}/zones/${ZONE_ID}/email/routing/rules?per_page=50" || echo '{"result":[]}')
+  RULE_ROWS=$(echo "$RULES" | ADDRESS="$ADDRESS" python3 -c "
+import sys, json, os
+addr = os.environ['ADDRESS']
+rules = json.load(sys.stdin).get('result', [])
+for r in rules:
+    if any(m.get('field') == 'to' and m.get('value') == addr for m in r.get('matchers', [])):
+        print(r['id'] + '\t' + (r.get('name') or '(unnamed rule)'))
+" 2>/dev/null || echo "")
+
+  local DNS DNS_ROWS
+  DNS=$(cf_get "${CF_API}/zones/${ZONE_ID}/dns_records?type=TXT&per_page=100" || echo '{"result":[]}')
+  DNS_ROWS=$(echo "$DNS" | python3 -c "
+import sys, json
+recs = json.load(sys.stdin).get('result', [])
+for r in recs:
+    if '_report._dmarc' in r.get('name', ''):
+        print(r['id'] + '\t' + r['name'])
+" 2>/dev/null || echo "")
+
+  echo "  Domain: ${DOMAIN}"
+  echo ""
+  echo "Will delete from zone ${DOMAIN}:"
+  echo ""
+  echo "  Email routing rules (${ADDRESS} → worker):"
+  if [ -z "$RULE_ROWS" ]; then
+    echo "    (none found)"
+  else
+    while IFS=$'\t' read -r _ RULE_NAME; do
+      [ -z "$RULE_NAME" ] && continue
+      echo "    • ${RULE_NAME}"
+    done <<< "$RULE_ROWS"
+  fi
+  echo ""
+  echo "  _report._dmarc TXT records:"
+  if [ -z "$DNS_ROWS" ]; then
+    echo "    (none found)"
+  else
+    while IFS=$'\t' read -r _ REC_NAME; do
+      [ -z "$REC_NAME" ] && continue
+      echo "    • ${REC_NAME}"
+    done <<< "$DNS_ROWS"
+  fi
+  echo ""
+  echo "Preserved (not touched): worker, D1 database, stored reports, Cloudflare Access."
+  echo ""
+
+  if [ -z "$RULE_ROWS" ] && [ -z "$DNS_ROWS" ]; then
+    echo "Nothing to clean up in this zone."
+    return
+  fi
+
+  if [ "$ASSUME_YES" != "true" ]; then
+    printf "Proceed with deletion? [y/N] "
+    read -r REPLY </dev/tty 2>/dev/null || REPLY=""
+    case "$REPLY" in
+      y|Y|yes|YES) ;;
+      *) echo "Aborted."; exit 0 ;;
+    esac
+  fi
+
+  echo ""
+  echo "[1/2] Deleting email routing rule(s)..."
+  if [ -z "$RULE_ROWS" ]; then
+    echo "  (none)"
+  else
+    while IFS=$'\t' read -r RULE_ID RULE_NAME; do
+      [ -z "$RULE_ID" ] && continue
+      local DEL
+      DEL=$(cf_post -X DELETE "${CF_API}/zones/${ZONE_ID}/email/routing/rules/${RULE_ID}")
+      if echo "$DEL" | python3 -c "import sys,json; assert json.load(sys.stdin).get('success')" 2>/dev/null; then
+        echo "  Deleted ${RULE_NAME}"
+      else
+        echo "  WARNING: Failed to delete ${RULE_NAME}:"
+        echo "$DEL" | python3 -c "import sys,json; [print(f'    {e[\"message\"]}') for e in json.load(sys.stdin).get('errors',[])]" 2>/dev/null || echo "  $DEL"
+      fi
+    done <<< "$RULE_ROWS"
+  fi
+
+  echo ""
+  echo "[2/2] Deleting _report._dmarc TXT record(s)..."
+  if [ -z "$DNS_ROWS" ]; then
+    echo "  (none)"
+  else
+    while IFS=$'\t' read -r REC_ID REC_NAME; do
+      [ -z "$REC_ID" ] && continue
+      local DEL
+      DEL=$(cf_post -X DELETE "${CF_API}/zones/${ZONE_ID}/dns_records/${REC_ID}")
+      if echo "$DEL" | python3 -c "import sys,json; assert json.load(sys.stdin).get('success')" 2>/dev/null; then
+        echo "  Deleted ${REC_NAME}"
+      else
+        echo "  WARNING: Failed to delete ${REC_NAME}:"
+        echo "$DEL" | python3 -c "import sys,json; [print(f'    {e[\"message\"]}') for e in json.load(sys.stdin).get('errors',[])]" 2>/dev/null || echo "  $DEL"
+      fi
+    done <<< "$DNS_ROWS"
+  fi
+
+  echo ""
+  echo "=== Cleanup complete for ${DOMAIN} ==="
+  echo ""
+  echo "Manual follow-ups you may want:"
+  echo "  • Disable Email Routing for ${DOMAIN} to remove its MX records:"
+  echo "    https://dash.cloudflare.com → ${DOMAIN} → Email → Email Routing"
+  echo "  • Confirm no monitored domain still points rua= at ${ADDRESS}:"
+  echo "    dig +short TXT _dmarc.<monitored-domain>"
+  echo "  • Stored reports stay in D1 and the dashboard — nothing there was removed."
+}
+
+if [ "$MODE" = "cleanup" ]; then
+  cleanup_zone
+  exit 0
+fi
+
+echo "=== DMARC Dashboard Kit Deploy ==="
 
 # --- Auto-detect domain from zone ID ---
 echo ""

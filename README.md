@@ -76,6 +76,8 @@ Then run `pnpm run deploy` again.
 | 6 | Creates email routing rule + `_report._dmarc` DNS TXT records |
 | 7 | Creates Cloudflare Access application + policy |
 
+Run `bash deploy.sh --cleanup --zone-id=<id>` to remove a retired domain's routing rule and `_report._dmarc` records — see [Changing the Receiving Domain](#changing-the-receiving-domain).
+
 ## Multi-Domain Support
 
 To monitor a domain, two DNS records are needed:
@@ -95,6 +97,24 @@ The deploy script handles step 2 automatically:
 - Or leave it empty to create a wildcard `*._report._dmarc` that accepts reports from any domain
 
 > **Warning:** `p=none` only monitors — it does **not** block spoofed emails. Once you've reviewed your DMARC reports and confirmed all legitimate senders pass DKIM/SPF, move to `p=quarantine` and then `p=reject` as soon as possible.
+
+## Changing the Receiving Domain
+
+The receiving domain is **derived from `CLOUDFLARE_ZONE_ID`** — deploy auto-detects the domain name from the zone, so the zone id is the only setting that selects it (there is no `DMARC_DOMAIN` variable). To move report ingestion to a new domain:
+
+1. Add the new domain as a zone on the **same Cloudflare account** and [enable Email Routing](#manual-prerequisites-one-time) on it.
+2. Make sure your API token's permissions cover the new zone.
+3. Set `CLOUDFLARE_ZONE_ID` to the new zone id in `.env`.
+4. Run `pnpm run deploy`. Account-scoped resources — the worker, D1 database, Cloudflare Access, and **all stored reports** — are reused unchanged; only the new email routing rule and `_report._dmarc` records are created on the new zone.
+5. Update each monitored domain's `_dmarc` TXT record to `rua=mailto:dmarc@<new-domain>`.
+
+Keep the old domain live for **1–2 weeks** so in-flight reports still arrive (reporters read `rua` from DNS roughly daily), then remove its resources:
+
+```bash
+bash deploy.sh --cleanup --zone-id=<old-zone-id>
+```
+
+Cleanup deletes **only** the zone-scoped resources on that domain — the `dmarc@<domain>` email routing rule and the `_report._dmarc` TXT records — after listing exactly what will be removed and asking for confirmation (`--yes` skips the prompt; `--zone-id` defaults to `CLOUDFLARE_ZONE_ID`). It never touches the worker, D1 database, stored reports, or Cloudflare Access. Disabling Email Routing on the old zone to drop its MX records remains a manual dashboard step.
 
 ## Local Development
 
