@@ -9,15 +9,15 @@
     "migrate:local": "for f in $(ls migrations/*.sql | sort); do wrangler d1 execute dmarc-reports --file=$f --local; done"
   },
   "dependencies": {
-    "fast-xml-parser": "^5.8.0",
-    "pako": "^2.1.0",
-    "postal-mime": "^2.7.4",
+    "fast-xml-parser": "^5.9.3",
+    "pako": "^2.2.0",
+    "postal-mime": "^2.7.5",
     "unzipit": "^1.4.3"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20260603.1",
+    "@cloudflare/workers-types": "^4.20260702.1",
     "@types/pako": "^2.0.4",
     "typescript": "^5.9.3",
-    "wrangler": "^4.97.0"
+    "wrangler": "^4.107.1"
   }
 }
