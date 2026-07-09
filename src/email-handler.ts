@@ -38,7 +38,11 @@ export async function handleEmail(
     return;
   }
 
-  const attachment = email.attachments[0];
+  // RFC 9990 §3.5.2: extract the body part with the prescribed media type or
+  // filename and ignore the rest (e.g. disclaimer or signature parts). Fall
+  // back to the first attachment since senders often mislabel both.
+  const attachment =
+    email.attachments.find(isReportAttachment) ?? email.attachments[0];
   const content =
     attachment.content instanceof ArrayBuffer
       ? attachment.content
@@ -79,6 +83,25 @@ export async function handleEmail(
     });
     throw insertErr;
   }
+}
+
+const REPORT_EXTENSIONS = [".xml", ".gz", ".zip"];
+const REPORT_MIME_TYPES = new Set([
+  "application/gzip",
+  "application/x-gzip",
+  "application/zip",
+  "application/x-zip-compressed",
+  "text/xml",
+  "application/xml",
+]);
+
+function isReportAttachment(attachment: {
+  filename?: string | null;
+  mimeType?: string;
+}): boolean {
+  const name = (attachment.filename ?? "").toLowerCase();
+  if (REPORT_EXTENSIONS.some((ext) => name.endsWith(ext))) return true;
+  return REPORT_MIME_TYPES.has((attachment.mimeType ?? "").toLowerCase());
 }
 
 async function getDMARCReportXML(attachment: { content: ArrayBuffer }) {
