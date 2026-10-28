@@ -101,7 +101,7 @@ bash deploy.sh [--profile <name>] --destroy   # the whole deployment
 
 `--cleanup` lists only **leftovers**: resources this script created that the profile no longer uses, such as the routing rule and `_report._dmarc` records on a zone you moved away from, or records of domains you removed from the list. Tick the ones to delete. The live deployment never appears in this list.
 
-`--destroy` removes the **whole deployment** of the profile: worker, Access, the D1 database with its reports, routing rules and DNS records (leftovers included). It first asks whether the reports were copied with `--migrate-from` or are no longer needed.
+`--destroy` removes the **whole deployment** of the profile: worker, Access, routing rules and DNS records (leftovers included) — all things a deploy can rebuild. The D1 database is the exception: destroy shows how many reports it holds and deletes it only when you type its name; press Enter to keep it (copy the reports first with `--migrate-from` if you need them).
 
 Confirmations take exactly `Y` or `N` and ask again on anything else.
 

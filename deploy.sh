@@ -983,7 +983,10 @@ delete_item() {
     access-app)    cf zero-trust access applications delete "$ID" --force ;;
     access-policy) cf zero-trust access policies delete "$ID" --force ;;
     access-group)  cf zero-trust access rule-groups delete "$ID" --force ;;
-    d1)            cf d1 delete "$ID" --force ;;
+    # Stored reports are the only thing a redeploy cannot rebuild: delete a database
+    # only after --destroy got its name typed in (D1_DELETE_OK).
+    d1)            [ "$MODE" = destroy ] && [ "${D1_DELETE_OK:-}" = "$ID" ] || { warn "Refusing to delete D1 database ${ID} without typed confirmation."; return 1; }
+                   cf d1 delete "$ID" --force ;;
   esac >/dev/null
 }
 
@@ -1016,12 +1019,26 @@ cleanup() {
       return
     fi
     for ((I = 0; I < ${#ITEM_KIND[@]}; I++)); do ITEM_ON[$I]=1; done
-    if selected d1; then
+    # The database is the one thing that cannot be rebuilt: show what it holds and
+    # delete it only when its name is typed; anything else keeps it.
+    for ((I = 0; I < ${#ITEM_KIND[@]}; I++)); do
+      [ "${ITEM_KIND[$I]}" = d1 ] || continue
+      local STATS TYPED=""
+      STATS=$(cf d1 query "${ITEM_ID[$I]}" --sql "SELECT COUNT(*) AS n, date(MAX(date_range_end), 'unixepoch') AS last FROM reports" 2>/dev/null \
+        | jq -r '.[0].results[0] | "\(.n) reports (latest \(.last // "none"))"' || echo "an unknown number of reports")
       echo ""
-      echo "${C_YELLOW}${C_BOLD}The D1 database holds the stored DMARC reports.${C_RESET}"
-      confirm "Have the reports been copied elsewhere with --migrate-from, or are they no longer needed?" \
-        || { echo "Aborted. Copy them first: bash deploy.sh --profile <target> --migrate-from=${PROFILE}"; exit 0; }
-    fi
+      echo "${C_RED}${C_BOLD}D1 database ${DB_NAME} holds ${STATS}.${C_RESET}"
+      echo "Deleting it cannot be undone. Copy the reports first if you need them:"
+      echo "  bash deploy.sh --profile <target> --migrate-from=${PROFILE}"
+      printf "Type the database name (%s) to delete it, or press Enter to keep it: " "$DB_NAME"
+      { read -r TYPED </dev/tty; } 2>/dev/null || TYPED=""
+      if [ "$TYPED" = "$DB_NAME" ]; then
+        D1_DELETE_OK="${ITEM_ID[$I]}"
+      else
+        ITEM_ON[$I]=0
+        echo "  ${C_GREEN}✓${C_RESET} Keeping ${DB_NAME} and its reports; the rest of the deployment is still removed."
+      fi
+    done
   fi
 
   echo ""
@@ -1031,6 +1048,7 @@ cleanup() {
   done
   echo ""
   [ "$MODE" = destroy ] && echo "${C_RED}${C_BOLD}This removes the whole deployment of profile ${PROFILE}: reports stop arriving and the dashboard goes away.${C_RESET}"
+  [ "$MODE" = destroy ] && [ -n "${D1_DELETE_OK:-}" ] && echo "${C_RED}${C_BOLD}The D1 database ${DB_NAME} and all stored reports are deleted too.${C_RESET}"
   confirm "Delete these resources?" || { echo "Aborted."; exit 0; }
   echo ""
 
