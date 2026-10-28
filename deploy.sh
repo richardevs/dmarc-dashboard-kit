@@ -135,7 +135,7 @@ while [ $# -gt 0 ]; do
 done
 
 PROFILE_FILE="profiles/${PROFILE}.json"
-PROFILE_ARG=$([ "$PROFILE" != "default" ] && echo " --profile $PROFILE" || true)
+PROFILE_ARG=" --profile $PROFILE"
 
 command -v jq >/dev/null || die "jq is required (brew install jq / apt install jq)."
 [ -x "$CF_BIN" ] || die "cf CLI not found. Run 'pnpm install' first."
@@ -325,7 +325,7 @@ choose_profile() {
   fi
   PROFILE="$CHOICE"
   PROFILE_FILE="profiles/${PROFILE}.json"
-  PROFILE_ARG=$([ "$PROFILE" != "default" ] && echo " --profile $PROFILE" || true)
+  PROFILE_ARG=" --profile $PROFILE"
   echo ""
 }
 
@@ -568,9 +568,15 @@ show_plan() {
   kv "Account" "${ACCOUNT_ID:-(single account of the login)}"
   kv "Zone" "$ZONE" "$C_BOLD"
   kv "Receiving address" "$DMARC_ADDRESS_P" "$C_CYAN"
-  kv "Report authorization" "$(report_record_names "$RECEIVE_DOMAIN_P" | paste -sd ' ' -)"
-  if [ "$AUTH_DOMAINS" = "[]" ]; then kv "Reports kept for" "(any domain)"
-  else kv "Reports kept for" "$(echo "$AUTH_DOMAINS" | jq -r --arg z "$ZONE" '[$z] + . | join(", ")') (and subdomains)"; fi
+  if [ "$AUTH_DOMAINS" = "[]" ]; then
+    kv "Report authorization" "*._report._dmarc.${RECEIVE_DOMAIN_P} (any domain)"
+    kv "Reports kept for" "(any domain)"
+  else
+    kv "Report authorization" "<domain>._report._dmarc.${RECEIVE_DOMAIN_P} for each domain below"
+    kv "Reports kept for" "${ZONE} and these $(echo "$AUTH_DOMAINS" | jq length) domains (and subdomains):"
+    # shellcheck disable=SC2046
+    print_columns $(echo "$AUTH_DOMAINS" | jq -r '.[]')
+  fi
   if [ -n "$DASHBOARD_HOST" ]; then kv "Dashboard" "https://${DASHBOARD_HOST}" "$C_CYAN"; else kv "Dashboard" "(generated on first deploy)"; fi
   kv "Access emails" "$(csv_or_dash "$ACCESS_EMAILS")"
   kv "Access email domains" "$(csv_or_dash "$ACCESS_EMAIL_DOMAINS")"
