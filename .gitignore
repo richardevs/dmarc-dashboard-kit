@@ -10,6 +10,5 @@ profiles/*.json
 !profiles/example.json
 dashboard/node_modules/
 dashboard/dist/
-scripts/
 .vscode/
 .claude/
