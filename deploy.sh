@@ -379,25 +379,42 @@ setup_profile() {
   echo ""
   header "4. Receiving address"
   MX=$(cf dns records list --zone "$ZONE_" --type MX --name "$ZONE_" | jq -r '[.[].content] | join(", ")')
-  DEF_SUB=""
+  local ROOT_FOREIGN="false" WHERE DEF_WHERE MAILBOX_HINT
   if [ -z "$MX" ]; then
     echo "${ZONE_} has no MX records, so it can receive on the root (enable Email Routing on it once in the dashboard)."
   elif ! echo "$MX" | tr ',' '\n' | grep -qv "mx.cloudflare.net"; then
     echo "${ZONE_} already uses Cloudflare Email Routing."
   else
+    ROOT_FOREIGN="true"
     echo "${C_YELLOW}${ZONE_} already receives mail elsewhere (${MX}).${C_RESET}"
     echo "Receive on a subdomain so the existing mailbox is not affected."
-    DEF_SUB="dmarc"
   fi
-  [ -n "$OLD" ] && DEF_SUB=$(old .dmarc.subdomain)
-  ask SUB "Subdomain (e.g. dmarc → rua@dmarc.${ZONE_})" "$DEF_SUB" "the root"
-  RECV="${SUB:+${SUB}.}${ZONE_}"
-  if [ -n "$SUB" ]; then
+  # Default to the profile's current choice; for a new profile, to a subdomain when the root is taken.
+  if [ -n "$OLD" ]; then
+    DEF_WHERE=$([ -n "$(old .dmarc.subdomain)" ] && echo sub || echo root)
+  else
+    DEF_WHERE=$([ "$ROOT_FOREIGN" = true ] && echo sub || echo root)
+  fi
+  MAILBOX_HINT=$(old .dmarc.localPart); MAILBOX_HINT=${MAILBOX_HINT:-rua}
+  pick WHERE "Receive reports on" "$DEF_WHERE" "$(printf 'root\t%-18s %s\nsub\t%-18s %s' \
+    "The zone itself" "${C_DIM}${MAILBOX_HINT}@${ZONE_}${C_RESET}" \
+    "A subdomain" "${C_DIM}e.g. ${MAILBOX_HINT}@dmarc.${ZONE_}${C_RESET}")"
+  SUB=""
+  if [ "$WHERE" = sub ]; then
+    while :; do
+      DEF_SUB=$(old .dmarc.subdomain)
+      ask SUB "Subdomain name (e.g. dmarc → ${MAILBOX_HINT}@dmarc.${ZONE_})" "${DEF_SUB:-dmarc}"
+      [[ "$SUB" =~ ^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?$ ]] && break
+      echo "  ${C_YELLOW}Use a single DNS label: letters, digits and inner hyphens.${C_RESET}"
+    done
     # A generic name may already be in use; existing mail on it would be taken over.
     local SUB_RECS
-    SUB_RECS=$(cf dns records list --zone "$ZONE_" --name "$RECV" | jq -r '[.[] | select((.content | endswith("mx.cloudflare.net")) | not) | .type] | unique | join(", ")')
-    [ -n "$SUB_RECS" ] && echo "${C_YELLOW}${RECV} already has DNS records (${SUB_RECS}); make sure it is not used for something else.${C_RESET}"
+    SUB_RECS=$(cf dns records list --zone "$ZONE_" --name "${SUB}.${ZONE_}" | jq -r '[.[] | select((.content | endswith("mx.cloudflare.net")) | not) | .type] | unique | join(", ")')
+    [ -n "$SUB_RECS" ] && echo "${C_YELLOW}${SUB}.${ZONE_} already has DNS records (${SUB_RECS}); make sure it is not used for something else.${C_RESET}"
+  elif [ "$ROOT_FOREIGN" = true ]; then
+    echo "${C_YELLOW}Deploy will stop until Email Routing is enabled on ${ZONE_}, which replaces its MX records (${MX}).${C_RESET}"
   fi
+  RECV="${SUB:+${SUB}.}${ZONE_}"
   # The mailbox name says which report type it receives, so ruf@ can sit next to rua@ later.
   LOCAL=$(old .dmarc.localPart)
   ask LOCAL "Mailbox name (<name>@${RECV})" "${LOCAL:-rua}"
