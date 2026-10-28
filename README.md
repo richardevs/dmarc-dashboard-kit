@@ -18,18 +18,14 @@ A single Cloudflare Worker handles both DMARC report ingestion (via email) and s
 
 - [Node.js](https://nodejs.org/) (v18+)
 - [pnpm](https://pnpm.io/)
+- [jq](https://jqlang.org/)
 - A Cloudflare account with a domain (free plan works)
-- A [Cloudflare API token](https://dash.cloudflare.com/profile/api-tokens) with permissions:
-  - Workers Scripts: Edit
-  - D1: Edit
-  - DNS: Edit
-  - Email Routing Rules: Edit
-  - Access: Apps and Policies: Edit
-  - Access: Groups: Edit _(only required if `ACCESS_ALLOWED_IPS` is set)_
+
+No API token is needed: `deploy.sh` logs in through the `cf` CLI, requesting only the permissions it uses. On the consent screen, select only the account(s) the kit should manage — logins are account-scoped, not zone-scoped.
 
 ## Manual Prerequisites (One-Time)
 
-1. **Enable Email Routing** for your receiving domain:
+1. **Enable Email Routing** for your receiving domain (skip this when receiving on a subdomain — deploy enables it there; see [Receiving on a subdomain](#receiving-on-a-subdomain)):
    > Cloudflare Dashboard → your domain → Email → Email Routing → Enable
 
    > **Note:** Cloudflare Email Routing requires your receiving domain's MX records to point to Cloudflare's mail servers. If your domain is already using another email provider, you cannot use Cloudflare Email Routing on the same domain without replacing the current MX records, which would break your existing email setup. A cheap dedicated domain is the recommended solution.
@@ -48,35 +44,67 @@ pnpm install
 pnpm run deploy
 ```
 
-On first run, `pnpm run deploy` creates a `.env` file for you to fill in:
+On first run, deploy walks you through creating `profiles/default.json`: it logs in, lists your accounts and zones to pick from, suggests a receiving subdomain when the zone already has a mail provider, and pre-fills the Access email from your login. Run `bash deploy.sh [--profile <name>] --setup` to edit a profile the same way later. [`profiles/example.json`](profiles/example.json) shows a complete profile. The fields:
 
-```bash
-CLOUDFLARE_API_TOKEN=
-CLOUDFLARE_ACCOUNT_ID=
-CLOUDFLARE_ZONE_ID=
-DMARC_EMAIL=dmarc
-REPORT_AUTHORIZED_DOMAINS=
-ACCESS_ALLOWED_EMAILS=
-ACCESS_ALLOWED_EMAIL_DOMAINS=
-ACCESS_ALLOWED_IPS=
-```
+| Field | Meaning |
+|-------|---------|
+| `cfLogin` | Named `cf` login to use (empty = the default login) |
+| `accountId` | Cloudflare account (needed when your login can see several) |
+| `zone` | Zone (domain) that receives reports and hosts the dashboard |
+| `dmarc.localPart`, `dmarc.subdomain` | Receiving address `<localPart>@<subdomain>.<zone>`; an empty subdomain receives on the zone itself |
+| `dmarc.authorizedDomains` | Other domains allowed to send reports here; empty = any (wildcard) |
+| `dashboard.host` | Dashboard hostname, exactly one level below the zone (also when receiving on a subdomain), so the zone's Universal SSL certificate covers it; empty = generated once as `dmarc-<random>.<zone>` and saved |
+| `access.*` | Who may open the dashboard: emails / email domains (OR'd), IP ranges (AND'd with identity when both are set) |
 
-Then run `pnpm run deploy` again.
+Then run `pnpm run deploy` again to deploy.
+
+### Multiple profiles
+
+Each `profiles/<name>.json` is a separate deployment (for example, personal and company accounts): `bash deploy.sh --profile company`. Set `cfLogin` so each profile uses its own login.
+
+### Upgrading from `.env`
+
+Just run `pnpm run deploy`: an existing `.env` is converted into `profiles/default.json` and moved to `.env.legacy` (`cf` would otherwise read its token). Review the profile and deploy again.
 
 ## What Deploy Automates
 
 | Step | What |
 |------|------|
-| 0 | Auto-detects domain from zone ID |
-| 1 | Creates D1 database (`dmarc-reports`) |
-| 2 | Generates `wrangler.toml` with D1 database ID |
-| 3 | Runs D1 schema migrations (all `migrations/*.sql` in order) |
-| 4 | Builds Svelte dashboard |
-| 5 | Deploys worker (API + dashboard + email handler) |
-| 6 | Creates email routing rule + `_report._dmarc` DNS TXT records |
-| 7 | Creates Cloudflare Access application + policy |
+| 0 | Resolves the zone, checks Email Routing (enables it on a receiving subdomain) |
+| 1 | Cloudflare Access app + reusable policy for the dashboard host (before it goes live) |
+| 2 | Finds or creates the D1 database (`dmarc-reports`) |
+| 3 | Applies D1 migrations |
+| 4 | Builds the Svelte dashboard |
+| 5 | Deploys the worker on a route for the dashboard host (`workers.dev` and preview URLs off) |
+| 6 | Email routing rule → worker |
+| 7 | `_report._dmarc` TXT records (tagged `managed-by:dmarc-dashboard-kit`) |
 
-Run `bash deploy.sh --cleanup --zone-id=<id>` to remove a retired domain's routing rule and `_report._dmarc` records — see [Changing the Receiving Domain](#changing-the-receiving-domain).
+The dashboard runs on a Worker route behind a proxied DNS record, so the zone's Universal SSL wildcard serves it. A Workers custom domain would get its own certificate, which publishes the hostname in public Certificate Transparency logs.
+
+### Checking a deployment
+
+```bash
+bash deploy.sh [--profile <name>] --list     # settings, managed resources, login scopes
+bash deploy.sh [--profile <name>] --verify   # compare the live setup with the profile
+```
+
+`--verify` checks every resource the script manages, confirms the dashboard answers only through Access and is served by the zone's wildcard certificate, and reports leftovers from older versions (old `.env`/`wrangler.toml`, routing rules or DNS records on zones the profile no longer uses). It exits non-zero when something is wrong.
+
+### Cleanup
+
+```bash
+bash deploy.sh [--profile <name>] --cleanup
+```
+
+Lists every resource this script created on the profile's account — including routing rules and `_report._dmarc` records left on zones the profile no longer uses — and deletes only the ones you tick. Deleting a D1 database first asks whether its reports were copied with `--migrate-from` or are no longer needed. Every confirmation accepts only `Y`.
+
+### Moving reports between deployments
+
+```bash
+bash deploy.sh --profile company --migrate-from=default
+```
+
+Copies all stored reports from the `default` profile's database into `company`'s, using each profile's own login (so it works across accounts). Reports already present are skipped, so it is safe to re-run.
 
 ## Multi-Domain Support
 
@@ -93,28 +121,29 @@ otherdomain.com._report._dmarc.yourdomain.com  TXT  "v=DMARC1;"
 ```
 
 The deploy script handles step 2 automatically:
-- Set `REPORT_AUTHORIZED_DOMAINS=otherdomain.com,another.org` in `.env` for specific domains
+- List specific domains in `dmarc.authorizedDomains`
 - Or leave it empty to create a wildcard `*._report._dmarc` that accepts reports from any domain
+
+Records the script created are tagged with a DNS comment, so removing a domain from the list also removes its record on the next deploy.
 
 > **Warning:** `p=none` only monitors — it does **not** block spoofed emails. Once you've reviewed your DMARC reports and confirmed all legitimate senders pass DKIM/SPF, move to `p=quarantine` and then `p=reject` as soon as possible.
 
+## Receiving on a subdomain
+
+Set `dmarc.subdomain` (e.g. `dmarc` for `rua@dmarc.example.com`) when the zone root already receives mail through another provider. Deploy enables Email Routing on the subdomain only, and refuses if the subdomain already receives mail elsewhere. Cloudflare then adds MX and SPF records under the subdomain and a `cf2024-1._domainkey` DKIM key at the root; the root's MX and SPF records stay as they are. If the root receives mail elsewhere but has no SPF record, deploy stops: Cloudflare would add a root SPF record authorizing only itself, breaking SPF for the root's own mail.
+
+To stop receiving on the subdomain, remove it in the dashboard (zone → Email → Email Routing → Settings → Subdomains); this needs a permission the deploy login does not request, so `--cleanup` only reminds you.
+
 ## Changing the Receiving Domain
 
-The receiving domain is **derived from `CLOUDFLARE_ZONE_ID`** — deploy auto-detects the domain name from the zone, so the zone id is the only setting that selects it (there is no `DMARC_DOMAIN` variable). To move report ingestion to a new domain:
+To move report ingestion to a new zone on the same account:
 
-1. Add the new domain as a zone on the **same Cloudflare account** and [enable Email Routing](#manual-prerequisites-one-time) on it.
-2. Make sure your API token's permissions cover the new zone.
-3. Set `CLOUDFLARE_ZONE_ID` to the new zone id in `.env`.
-4. Run `pnpm run deploy`. Account-scoped resources — the worker, D1 database, Cloudflare Access, and **all stored reports** — are reused unchanged; only the new email routing rule and `_report._dmarc` records are created on the new zone.
-5. Update each monitored domain's `_dmarc` TXT record to `rua=mailto:dmarc@<new-domain>`.
+1. Add the zone to Cloudflare (and enable Email Routing on it, unless you receive on a subdomain).
+2. Set `zone` and `dashboard.host` (one level below the new zone, or empty to generate one) in your profile.
+3. Run `pnpm run deploy`. The worker, D1 database, Access, and **all stored reports** are reused.
+4. Point each monitored domain's `rua=` at the new address.
 
-Keep the old domain live for **1–2 weeks** so in-flight reports still arrive (reporters read `rua` from DNS roughly daily), then remove its resources:
-
-```bash
-bash deploy.sh --cleanup --zone-id=<old-zone-id>
-```
-
-Cleanup deletes **only** the zone-scoped resources on that domain — the `dmarc@<domain>` email routing rule and the `_report._dmarc` TXT records — after listing exactly what will be removed and asking for confirmation (`--yes` skips the prompt; `--zone-id` defaults to `CLOUDFLARE_ZONE_ID`). It never touches the worker, D1 database, stored reports, or Cloudflare Access. Disabling Email Routing on the old zone to drop its MX records remains a manual dashboard step.
+Keep the old zone live for **1–2 weeks** so in-flight reports still arrive, then run `bash deploy.sh --cleanup` and tick the old zone's routing rule and DNS records.
 
 ## Local Development
 
@@ -126,10 +155,12 @@ pnpm run migrate:local
 pnpm run dev
 
 # In another terminal — start dashboard dev server
-cd dashboard
-pnpm install
-pnpm run dev
+pnpm --filter dashboard run dev
 ```
+
+A pre-commit hook (`.githooks/`, enabled by `pnpm install`) scans staged changes for secrets with [betterleaks](https://betterleaks.com) when it is installed; `pnpm run scan:secrets` scans the whole git history.
+
+The repo is a pnpm workspace: `pnpm install` at the root installs the worker and the dashboard, and `pnpm update -r` updates both (a plain `pnpm update` only updates the root; `pnpm run update:all` does the same).
 
 The dashboard dev server (Vite) runs separately during development. In production, the built dashboard is served as static assets by the worker.
 
@@ -150,8 +181,10 @@ The dashboard dev server (Vite) runs separately during development. In productio
 ├── migrations/
 │   ├── 0001_init.sql       # D1 schema (reports + record_rows tables)
 │   └── 0002_record_rows_unique.sql  # unique index on record_rows
-├── deploy.sh               # One-command deploy
-└── wrangler.toml           # Generated by deploy.sh (gitignored)
+├── profiles/example.json   # Deployment profile template (real profiles are gitignored)
+├── cloudflare.config.ts    # Worker config (reads the selected profile)
+├── wrangler.config.ts      # Build settings (dashboard assets directory)
+└── deploy.sh               # One-command deploy
 ```
 
 ## License
