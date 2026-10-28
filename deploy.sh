@@ -330,7 +330,7 @@ choose_profile() {
 }
 
 setup_profile() {
-  local OLD="" CFP ACC ZONE_ SUB LOCAL AUTH HOST EMAILS DOMAINS IPS WHO ROWS MX RECV DEF_SUB
+  local OLD="" CFP ACC ZONE_ SUB LOCAL AUTH HOST LABEL EMAILS DOMAINS IPS WHO ROWS MX RECV DEF_SUB
   old()  { [ -n "$OLD" ] && jq -r "$1 // empty" "$OLD" || true; }
   oldl() { [ -n "$OLD" ] && jq -r "($1 // []) | join(\", \")" "$OLD" || true; }
 
@@ -452,7 +452,16 @@ setup_profile() {
   echo ""
   header "6. Dashboard hostname"
   echo "Must be one level below ${ZONE_} so its Universal SSL certificate covers it."
-  ask HOST "Hostname" "$(old .dashboard.host)" "generate dmarc-<random>"
+  while :; do
+    ask HOST "Hostname (a name like dash, or the full host)" "$(old .dashboard.host)" "generate dmarc-<random>"
+    HOST=$(echo "$HOST" | tr 'A-Z' 'a-z')
+    # A bare label is placed under the zone.
+    [ -n "$HOST" ] && [[ "$HOST" != *.* ]] && HOST="${HOST}.${ZONE_}"
+    [ -z "$HOST" ] && break
+    LABEL="${HOST%."$ZONE_"}"
+    [ "$LABEL" != "$HOST" ] && [[ "$LABEL" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$ ]] && break
+    echo "  ${C_YELLOW}Use a single name directly under ${ZONE_}, e.g. dash or dash.${ZONE_}.${C_RESET}"
+  done
   if [ -n "$HOST" ]; then chosen "Dashboard at ${C_CYAN}https://${HOST}${C_RESET}"; else chosen "Dashboard host generated on first deploy (dmarc-<random>.${ZONE_})"; fi
 
   echo ""
