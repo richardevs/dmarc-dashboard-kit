@@ -4,7 +4,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-10-29
+
 ### Changed
+- **Breaking:** requires Node.js 22.18 or later (for the `cf` CLI), pnpm 12, and `jq`.
 - **Sender IP details come from the DB-IP Lite databases** (CC BY 4.0, free for commercial use, attribution shown) looked up locally by the worker, instead of ip-api.com (non-commercial free tier, plain HTTP). No external API call, token, or rate limit; the dashboard's rate-limit countdown is gone.
 - **Breaking:** deployment uses the `cf` CLI instead of wrangler + `curl`. `deploy.sh` logs in with `cf auth login` using only the OAuth scopes it needs (`--login`, or automatically when not logged in); API tokens are no longer used. wrangler remains as `cf`'s bundler.
 - **Breaking:** configuration moved from `.env` to JSON profiles in `profiles/<name>.json`, selected with `deploy.sh --profile <name>`. Several deployments (e.g. personal and company accounts) can live side by side. An existing `.env` is converted automatically on the first run and, after confirmation, moved to `.env.legacy`; a leftover `wrangler.toml` is reported for you to compare and remove.
@@ -64,6 +67,7 @@ Initial release: self-hosted DMARC report analyzer on Cloudflare (Email Routing 
 - Timezone-aware date grouping and report ID precision.
 - Idempotent `_report._dmarc` and Access policy updates.
 
-[Unreleased]: https://github.com/richardevs/dmarc-dashboard-kit/compare/v1.0.1...HEAD
+[Unreleased]: https://github.com/richardevs/dmarc-dashboard-kit/compare/v2.0.0...HEAD
+[2.0.0]: https://github.com/richardevs/dmarc-dashboard-kit/compare/v1.0.1...v2.0.0
 [1.0.1]: https://github.com/richardevs/dmarc-dashboard-kit/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/richardevs/dmarc-dashboard-kit/releases/tag/v1.0.0

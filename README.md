@@ -16,8 +16,8 @@ A single Cloudflare Worker handles both DMARC report ingestion (via email) and s
 
 ## Prerequisites
 
-- [Node.js](https://nodejs.org/) (v18+)
-- [pnpm](https://pnpm.io/)
+- [Node.js](https://nodejs.org/) 22.18 or later (required by the `cf` CLI)
+- [pnpm](https://pnpm.io/) 12
 - [jq](https://jqlang.org/)
 - A Cloudflare account with a domain (free plan works)
 
