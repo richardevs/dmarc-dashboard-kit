@@ -23,17 +23,14 @@ A single Cloudflare Worker handles both DMARC report ingestion (via email) and s
 
 No API token is needed: `deploy.sh` logs in through the `cf` CLI, requesting only the permissions it uses. On the consent screen, select only the account(s) the kit should manage — logins are account-scoped, not zone-scoped.
 
-## Manual Prerequisites (One-Time)
+## One-Time Prerequisite
 
-1. **Enable Email Routing** for your receiving domain (skip this when receiving on a subdomain — deploy enables it there; see [Receiving on a subdomain](#receiving-on-a-subdomain)):
-   > Cloudflare Dashboard → your domain → Email → Email Routing → Enable
+**Set up Cloudflare Zero Trust** on your account, which provides Cloudflare Access (the dashboard's login wall):
+> Cloudflare Dashboard → Zero Trust → Get started — choose a team name and the Free plan
 
-   > **Note:** Cloudflare Email Routing needs the receiving domain's MX records to point to Cloudflare. If the zone already uses another mail provider, do not enable it on the zone — receive on a subdomain instead (`--setup` suggests this), or use a dedicated domain.
+This is an account-level choice, so deploy does not do it; it stops with these steps if Zero Trust is missing.
 
-2. **Enable Cloudflare Access** on your account:
-   > Cloudflare Dashboard → Access → Get started
-
-Both are one-time settings best configured through the dashboard.
+Email Routing needs no manual step. Deploy enables it on the receiving domain when that domain has no MX records yet. It never enables it over another mail provider's MX records — if your zone already receives mail elsewhere, choose a receiving subdomain in `--setup` (it suggests this), or use a dedicated domain.
 
 ## Quick Start
 
@@ -151,7 +148,7 @@ To stop receiving on the subdomain, remove it in the dashboard (zone → Email �
 
 To move report ingestion to a new zone on the same account:
 
-1. Add the zone to Cloudflare (and enable Email Routing on it, unless you receive on a subdomain).
+1. Add the zone to Cloudflare.
 2. Run `bash deploy.sh --setup` and pick the new zone and a dashboard hostname in it (or let one be generated).
 3. Run `pnpm run deploy`. The worker, D1 database, Access, and **all stored reports** are reused.
 4. Point each monitored domain's `rua=` at the new address.

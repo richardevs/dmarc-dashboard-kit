@@ -657,6 +657,7 @@ show_plan() {
   header "Resources managed by this script"
   kv "Worker" "${WORKER_NAME} (route ${DASHBOARD_HOST:-<host>}/*; workers.dev and preview URLs off)"
   kv "D1 database" "$DB_NAME"
+  kv "Email Routing" "enabled on ${RECEIVE_DOMAIN_P} if not yet (only when it has no MX records)"
   kv "Email routing rule" "\"${RULE_NAME}\": ${DMARC_ADDRESS_P} → ${WORKER_NAME}"
   kv "DNS records" "_report._dmarc TXT + dashboard A 192.0.2.0 (proxied), comment ${MANAGED_TAG}"
   kv "Access" "app \"${ACCESS_APP_NAME}\", reusable policy \"${ACCESS_POLICY_NAME}\"$([ "$ACCESS_IPS" != "[]" ] && [ "$HAS_IDENTITY_P" = true ] && echo ", group \"${ACCESS_GROUP_NAME}\"")"
@@ -1171,9 +1172,17 @@ echo "  Dashboard: https://${DASHBOARD_HOST}"
 if cf dns records list --zone "$ZONE" --type MX --name "$RECEIVE_DOMAIN" | jq -e 'any(.[]; .content | endswith("mx.cloudflare.net"))' >/dev/null; then
   echo "  Email Routing enabled on ${RECEIVE_DOMAIN}"
 elif [ -z "$SUBDOMAIN" ]; then
-  die "Email Routing is not enabled on ${ZONE}. Enabling it replaces the zone's MX records.
-Either enable it in the dashboard (${ZONE} → Email → Email Routing), or receive on a
-subdomain instead (choose it with: bash deploy.sh${PROFILE_ARG} --setup)."
+  # Enabling Email Routing on the root replaces its MX records, so only do it when
+  # there are none (a domain without mail of its own); never over another provider.
+  ROOT_MX=$(cf dns records list --zone "$ZONE" --type MX --name "$ZONE" | jq -r '[.[].content] | join(", ")')
+  if [ -n "$ROOT_MX" ]; then
+    die "${ZONE} receives mail through ${ROOT_MX}. Enabling Email Routing on it would replace
+those MX records and break that mail. Receive on a subdomain instead (choose it with:
+bash deploy.sh${PROFILE_ARG} --setup)."
+  fi
+  echo "  Enabling Email Routing on ${ZONE} (it has no MX records yet)..."
+  cf email-routing enable --zone "$ZONE" >/dev/null \
+    || die "Could not enable Email Routing on ${ZONE}. Enable it in the dashboard: ${ZONE} → Email → Email Routing."
 else
   # Enabling a subdomain also touches the zone root: Cloudflare adds a DKIM key
   # (cf2024-1._domainkey) and, only when the root has no SPF record, an SPF record
@@ -1199,6 +1208,11 @@ fi
 # Runs before the deploy so the dashboard host is never reachable without Access.
 echo ""
 echo "[1/7] Configuring Cloudflare Access..."
+# Every Access call fails until Zero Trust is set up on the account (a one-time,
+# account-level choice of team name and plan), so check once and explain.
+cf zero-trust access applications list >/dev/null || die "Cloudflare Access is not available on this account.
+If Zero Trust is not set up yet, do it once in the dashboard: Zero Trust → Get started
+(choose a team name and the Free plan), then deploy again."
 
 # Rules within a group's include are OR'd, then the group is AND'd via require.
 # This avoids the flat-require AND problem where several IPs would all have to match.

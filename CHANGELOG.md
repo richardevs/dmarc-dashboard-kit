@@ -24,6 +24,7 @@ All notable changes to this project are documented here. The format follows [Kee
 - gzip reports are decompressed with the runtime's `DecompressionStream`; `pako` and the deprecated `@types/pako` were removed (bundle 420 KiB → 348 KiB).
 
 ### Added
+- Deploy enables Email Routing on the receiving domain when it has no MX records yet, so the manual Email Routing step is gone. It never enables it over another provider's MX records. If Cloudflare Access fails, deploy stops with the one-time Zero Trust setup steps.
 - With authorized domains listed, deploy (in place of the generic p=none warning) and `--verify` check each monitored domain's published DMARC record: policy strength, and whether its `rua=` actually includes the receiving address. The zone itself is only checked when its `rua=` points here (it may just host the kit).
 - Follow-up offers: after `--setup` saves, `Deploy profile <name> now?`; after a deploy, `Run --verify now?`. `Y` runs it, anything else ends normally.
 - `access.sessionDuration` in the profile (picked in `--setup`, default 24 hours) sets the Access application's session duration; `--list` shows it and `--verify` checks it.
