@@ -273,6 +273,11 @@ login() {
 logged_in() { cf auth whoami 2>/dev/null | jq -e '.authenticated and .tokenValid != false' >/dev/null; }
 
 # --- Setup mode: build a profile interactively ---
+session_label() {
+  case "$1" in 15m) echo "15 minutes" ;; 30m) echo "30 minutes" ;; 6h) echo "6 hours" ;; 12h) echo "12 hours" ;;
+    24h) echo "24 hours" ;; 168h) echo "1 week" ;; 730h) echo "1 month" ;; *) echo "$1" ;; esac
+}
+
 # chosen <text> — confirms what a setup step ended up with.
 chosen() { echo "  ${C_GREEN}✓${C_RESET} $*"; }
 
@@ -475,14 +480,22 @@ setup_profile() {
   chosen "Allowed: $(jq -rn --argjson e "$(csv_to_json "$EMAILS")" --argjson d "$(csv_to_json "$DOMAINS")" --argjson i "$(csv_to_json "$IPS")" \
     '[($e|select(length>0)|"emails \(join(", "))"), ($d|select(length>0)|"email domains \(join(", "))"), ($i|select(length>0)|"IP ranges \(join(", ")) (required in addition)")] | join("; ")')"
 
+  # The durations Cloudflare's dashboard offers for an Access application.
+  local SESSION OLD_SESSION
+  OLD_SESSION=$(old .access.sessionDuration)
+  echo ""
+  echo "How long a login to the dashboard lasts before Access asks again."
+  pick SESSION "Session duration" "${OLD_SESSION:-24h}" "$(printf '%s\t%s\n' 15m "15 minutes" 30m "30 minutes" 6h "6 hours" 12h "12 hours" 24h "24 hours" 168h "1 week" 730h "1 month")"
+  chosen "Session lasts ${C_CYAN}$(session_label "$SESSION")${C_RESET}"
+
   local JSON
-  JSON=$(jq -n --arg cfp "$CFP" --arg acc "$ACC" --arg zone "$ZONE_" --arg lp "$LOCAL" --arg sub "$SUB" --arg host "$HOST" \
+  JSON=$(jq -n --arg cfp "$CFP" --arg acc "$ACC" --arg zone "$ZONE_" --arg lp "$LOCAL" --arg sub "$SUB" --arg host "$HOST" --arg session "$SESSION" \
     --argjson auth "$(csv_to_json "$AUTH")" --argjson emails "$(csv_to_json "$EMAILS")" \
     --argjson domains "$(csv_to_json "$DOMAINS")" --argjson ips "$(csv_to_json "$IPS")" '{
       cfLogin: $cfp, accountId: $acc, zone: $zone,
       dmarc: {localPart: $lp, subdomain: $sub, authorizedDomains: $auth},
       dashboard: {host: $host},
-      access: {emails: $emails, emailDomains: $domains, ips: $ips}
+      access: {emails: $emails, emailDomains: $domains, ips: $ips, sessionDuration: $session}
     }')
   echo ""
   echo "$JSON"
@@ -519,6 +532,7 @@ AUTH_DOMAINS=$(pj .dmarc.authorizedDomains)
 ACCESS_EMAILS=$(pj .access.emails)
 ACCESS_EMAIL_DOMAINS=$(pj .access.emailDomains)
 ACCESS_IPS=$(pj .access.ips)
+SESSION_DURATION=$(p .access.sessionDuration); SESSION_DURATION=${SESSION_DURATION:-24h}
 
 [ -n "$ACCOUNT_ID" ] && export CLOUDFLARE_ACCOUNT_ID="$ACCOUNT_ID"
 
@@ -581,6 +595,7 @@ show_plan() {
   kv "Access emails" "$(csv_or_dash "$ACCESS_EMAILS")"
   kv "Access email domains" "$(csv_or_dash "$ACCESS_EMAIL_DOMAINS")"
   kv "Access IP ranges" "$(csv_or_dash "$ACCESS_IPS")"
+  kv "Access session" "$(session_label "$SESSION_DURATION")"
 
   echo ""
   header "Resources managed by this script"
@@ -729,6 +744,9 @@ verify() {
   else
     if echo "$APP" | jq -e --arg h "$DASHBOARD_HOST" '.domain == $h' >/dev/null; then v_ok "Access app covers ${DASHBOARD_HOST}"
     else v_fail "Access app is on $(echo "$APP" | jq -r .domain), not ${DASHBOARD_HOST}"; fi
+    if echo "$APP" | jq -e --arg sd "$SESSION_DURATION" '.session_duration == $sd' >/dev/null; then
+      v_ok "Session duration $(session_label "$SESSION_DURATION")"
+    else v_warn "Session duration is $(echo "$APP" | jq -r '.session_duration // "unset"'), profile says ${SESSION_DURATION} (updated on next deploy)"; fi
     POLICIES=$(cf zero-trust access applications get "$(echo "$APP" | jq -r .id)" | jq -c '.policies // []')
     if echo "$POLICIES" | jq -e --arg n "$ACCESS_POLICY_NAME" 'any(.[]; .name == $n and .reusable)' >/dev/null; then
       v_ok "Reusable policy \"${ACCESS_POLICY_NAME}\" attached"
@@ -1182,8 +1200,8 @@ if [ -n "$PREV_HOST" ] && [ "$PREV_HOST" != "$DASHBOARD_HOST" ] && [[ "$PREV_HOS
   fi
 fi
 
-APP_BODY=$(jq -cn --arg n "$ACCESS_APP_NAME" --arg h "$DASHBOARD_HOST" --arg p "$POLICY_ID" --argjson keep "$KEEP_HOSTS" '{
-  name: $n, type: "self_hosted", domain: $h, session_duration: "24h",
+APP_BODY=$(jq -cn --arg n "$ACCESS_APP_NAME" --arg h "$DASHBOARD_HOST" --arg p "$POLICY_ID" --argjson keep "$KEEP_HOSTS" --arg sd "$SESSION_DURATION" '{
+  name: $n, type: "self_hosted", domain: $h, session_duration: $sd,
   destinations: ([$h] + $keep | map({type: "public", uri: .})),
   policies: [{id: $p, precedence: 1}]
 }')

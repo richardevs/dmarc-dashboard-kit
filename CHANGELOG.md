@@ -21,6 +21,7 @@ All notable changes to this project are documented here. The format follows [Kee
 - gzip reports are decompressed with the runtime's `DecompressionStream`; `pako` and the deprecated `@types/pako` were removed (bundle 420 KiB → 348 KiB).
 
 ### Added
+- `access.sessionDuration` in the profile (picked in `--setup`, default 24 hours) sets the Access application's session duration; `--list` shows it and `--verify` checks it.
 - Profiles are changed only through `--setup`: each saved profile carries a `_note` and a `_checksum`, and deploy, cleanup and migrate refuse a profile edited by hand until it is saved with `--setup` again (`--list` and `--verify` only warn).
 - Changing `dashboard.host` retires the previous host first: its DNS record (if created by the script) is removed before Access moves, so a leftover route can never serve the dashboard without Access; a record the script did not create keeps Access on the old host until it is removed.
 - Report allowlist: when `dmarc.authorizedDomains` is set, the worker keeps only reports whose `policy_published.domain` is the zone, a listed domain, or a subdomain of them, and drops others (the address is public in `rua=`, so anyone can send to it). An empty list keeps reports for any domain, as before.

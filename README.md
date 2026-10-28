@@ -55,6 +55,7 @@ On first run, deploy walks you through creating `profiles/default.json`: it logs
 | `dmarc.authorizedDomains` | Other domains allowed to send reports here; empty = any (wildcard) |
 | `dashboard.host` | Dashboard hostname, exactly one level below the zone (also when receiving on a subdomain), so the zone's Universal SSL certificate covers it; empty = generated once as `dmarc-<random>.<zone>` and saved |
 | `access.*` | Who may open the dashboard: emails / email domains (OR'd), IP ranges (AND'd with identity when both are set) |
+| `access.sessionDuration` | How long an Access login lasts (15m, 30m, 6h, 12h, 24h, 168h = 1 week, 730h = 1 month; default 24h). A session duration set on the policy or globally in Zero Trust overrides it |
 
 Then run `pnpm run deploy` again to deploy.
 
