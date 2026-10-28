@@ -575,6 +575,28 @@ expected_include() {
     then ($e | map({email: {email: .}})) + ($d | map({email_domain: {domain: .}}))
     else $ips | map({ip: {ip: .}}) end'
 }
+# dmarc_status <address> — check the published DMARC record of the zone and every
+# authorized domain (public DNS over HTTPS, so no extra permissions or dig needed).
+dmarc_status() {
+  local ADDRESS="$1" D TXT P RUA
+  for D in $(echo "$AUTH_DOMAINS" | jq -r --arg z "$ZONE" '[$z] + (. - [$z] | unique) | .[]'); do
+    # Join split TXT strings ("a" "b") back into one record.
+    TXT=$(curl -fsS -m 10 -H 'accept: application/dns-json' "https://cloudflare-dns.com/dns-query?name=_dmarc.${D}&type=TXT" 2>/dev/null \
+      | jq -r '[.Answer[]? | select(.type == 16) | .data | gsub("\" \""; "") | ltrimstr("\"") | rtrimstr("\"")]
+               | map(select(test("^v=DMARC1"; "i"))) | first // empty' 2>/dev/null || true)
+    if [ -z "$TXT" ]; then v_warn "${D}: no DMARC record (_dmarc.${D})"; continue; fi
+    P=$(echo "$TXT" | grep -oiE '(^|;)[[:space:]]*p=[a-z]+' | head -1 | sed -E 's/.*p=//I' | tr 'A-Z' 'a-z')
+    RUA=$(echo "$TXT" | grep -oiE 'rua=[^;]*' | head -1)
+    if ! echo "$RUA" | tr 'A-Z' 'a-z' | grep -qF "mailto:$(echo "$ADDRESS" | tr 'A-Z' 'a-z')"; then
+      v_warn "${D}: p=${P:-?}, but rua= does not include ${ADDRESS}, so its reports do not arrive here"
+    elif [ "$P" = none ] || [ -z "$P" ]; then
+      v_warn "${D}: p=${P:-missing} only monitors; move to quarantine, then reject, once senders pass DKIM/SPF"
+    else
+      v_ok "${D}: p=${P}, reports here"
+    fi
+  done
+}
+
 report_record_names() {
   echo "$AUTH_DOMAINS" | jq -r --arg d "$1" 'if length == 0 then ["*"] else . end | .[] | "\(.)._report._dmarc.\($d)"'
 }
@@ -797,6 +819,11 @@ verify() {
         *) v_warn "Could not read the TLS certificate" ;;
       esac
     fi
+  fi
+
+  if [ "$AUTH_DOMAINS" != "[]" ]; then
+    echo ""; header "Monitored domains"
+    dmarc_status "$DMARC_ADDRESS_P"
   fi
 
   echo ""; header "Leftovers from older versions"
@@ -1380,7 +1407,13 @@ echo ""
 echo "${C_BOLD}To monitor a domain, add a DMARC policy TXT record on that domain:${C_RESET}"
 echo "  ${C_DIM}_dmarc.example.com  TXT  \"v=DMARC1; p=none; rua=mailto:${DMARC_ADDRESS}\"${C_RESET}"
 echo ""
-echo "${C_YELLOW}${C_BOLD}WARNING:${C_RESET}${C_YELLOW} p=none only monitors — it does NOT block spoofed emails.${C_RESET}"
-echo "${C_YELLOW}  Move to p=quarantine then p=reject once legitimate senders pass DKIM/SPF.${C_RESET}"
+if [ "$AUTH_DOMAINS" = "[]" ]; then
+  echo "${C_YELLOW}${C_BOLD}WARNING:${C_RESET}${C_YELLOW} p=none only monitors — it does NOT block spoofed emails.${C_RESET}"
+  echo "${C_YELLOW}  Move to p=quarantine then p=reject once legitimate senders pass DKIM/SPF.${C_RESET}"
+  echo "${C_DIM}  List your domains in --setup (authorized domains) to have their DMARC records checked here.${C_RESET}"
+else
+  header "Monitored domains"
+  dmarc_status "$DMARC_ADDRESS"
+fi
 echo ""
 offer "${C_BOLD}Run --verify now?${C_RESET}" && next_run --profile "$PROFILE" --verify

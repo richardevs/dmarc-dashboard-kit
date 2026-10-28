@@ -21,6 +21,7 @@ All notable changes to this project are documented here. The format follows [Kee
 - gzip reports are decompressed with the runtime's `DecompressionStream`; `pako` and the deprecated `@types/pako` were removed (bundle 420 KiB → 348 KiB).
 
 ### Added
+- With authorized domains listed, deploy (in place of the generic p=none warning) and `--verify` check each monitored domain's published DMARC record: policy strength, and whether its `rua=` actually includes the receiving address.
 - Follow-up offers: after `--setup` saves, `Deploy profile <name> now?`; after a deploy, `Run --verify now?`. `Y` runs it, anything else ends normally.
 - `access.sessionDuration` in the profile (picked in `--setup`, default 24 hours) sets the Access application's session duration; `--list` shows it and `--verify` checks it.
 - Profiles are changed only through `--setup`: each saved profile carries a `_note` and a `_checksum`, and deploy, cleanup and migrate refuse a profile edited by hand until it is saved with `--setup` again (`--list` and `--verify` only warn).
