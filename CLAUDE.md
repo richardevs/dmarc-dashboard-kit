@@ -64,6 +64,16 @@ All API endpoints accept `?domain=` filter. Each DMARC report stores its domain.
 
 `../dmarc-email-worker` is Cloudflare's official DMARC worker (R2 + Analytics Engine). The XML parsing pipeline and type definitions were adapted from it for D1 storage.
 
+## Release Notes
+
+GitHub release notes are written in Simplified Technical English (ASD-STE100):
+- Short sentences: at most 20 words for instructions, 25 for descriptions. One instruction per sentence.
+- Active voice, simple present tense, imperative for instructions ("Run …", not "You should run …").
+- Plain, approved words; no idioms, contractions, or phrasal verbs ("remove", not "get rid of").
+- Use the same word for the same thing everywhere.
+
+Group the notes as: **Upgrading from x.y** (only changes that need action from existing users), **New**, **Changes**, **Fixes**. Mark something as breaking only when an existing setup stops working or needs action. Base the notes on `CHANGELOG.md`, which collects every user-facing change under `[Unreleased]` as work happens.
+
 ## Code Audit Guidelines
 
 When auditing this codebase, check the following:
