@@ -273,6 +273,9 @@ login() {
 logged_in() { cf auth whoami 2>/dev/null | jq -e '.authenticated and .tokenValid != false' >/dev/null; }
 
 # --- Setup mode: build a profile interactively ---
+# chosen <text> — confirms what a setup step ended up with.
+chosen() { echo "  ${C_GREEN}✓${C_RESET} $*"; }
+
 # ask <var> <prompt> [default] [what Enter means when the default is empty] — "-" clears the default.
 # The brackets show what Enter submits: a value, or "Enter = …" when that is nothing.
 ask() {
@@ -335,6 +338,8 @@ setup_profile() {
   echo "${C_DIM}Enter accepts what is in [brackets]; type - to clear a value.${C_RESET}"
   echo ""
   choose_profile
+  if [ -f "$PROFILE_FILE" ]; then chosen "Editing ${C_CYAN}${PROFILE_FILE}${C_RESET}"; else chosen "Creating ${C_CYAN}${PROFILE_FILE}${C_RESET}"; fi
+  echo ""
   # Existing values become the defaults, so re-running only changes what you type.
   [ -f "$PROFILE_FILE" ] && jq empty "$PROFILE_FILE" 2>/dev/null && OLD="$PROFILE_FILE"
 
@@ -369,6 +374,7 @@ setup_profile() {
     logged_in || login
   fi
   WHO=$(cf auth whoami)
+  chosen "Login ${C_CYAN}${CFP:-default}${C_RESET} ($(echo "$WHO" | jq -r '.email // "logged in"'))"
 
   echo ""
   header "2. Account"
@@ -376,10 +382,10 @@ setup_profile() {
   [ -n "$ROWS" ] || die "This login has no accounts. Run: bash deploy.sh${PROFILE_ARG} --login"
   if [ "$(echo "$ROWS" | wc -l | tr -d ' ')" = 1 ]; then
     ACC=$(echo "$ROWS" | cut -f1)
-    echo "  $(echo "$ROWS" | cut -f2)"
   else
     pick ACC "Account" "$(old .accountId)" "$ROWS"
   fi
+  chosen "Account ${C_CYAN}$(echo "$ROWS" | awk -F'\t' -v id="$ACC" '$1 == id {print $2}')${C_RESET}"
   export CLOUDFLARE_ACCOUNT_ID="$ACC"
 
   echo ""
@@ -388,6 +394,7 @@ setup_profile() {
   ROWS=$(cf zones list --account-id "$ACC" --per-page 50 | jq -r '.[] | [.name, .name] | @tsv')
   [ -n "$ROWS" ] || die "No zones on this account. Add a domain to Cloudflare first."
   pick ZONE_ "Zone" "$(old .zone)" "$ROWS"
+  chosen "Zone ${C_CYAN}${ZONE_}${C_RESET}"
 
   echo ""
   header "4. Receiving address"
@@ -431,18 +438,22 @@ setup_profile() {
   # The mailbox name says which report type it receives, so ruf@ can sit next to rua@ later.
   LOCAL=$(old .dmarc.localPart)
   ask LOCAL "Mailbox name (<name>@${RECV})" "${LOCAL:-rua}"
-  echo "  Reports go to ${C_CYAN}${LOCAL}@${RECV}${C_RESET}"
+  chosen "Reports go to ${C_CYAN}${LOCAL}@${RECV}${C_RESET}"
 
   echo ""
   header "5. Other domains reporting here"
   echo "Domains outside ${ZONE_} whose rua= points at ${LOCAL}@${RECV} must be authorized."
   echo "Separate them with commas or spaces; with none listed, reports for any domain are kept."
   ask AUTH "Authorized domains (e.g. example.org, example.net)" "$(oldl .dmarc.authorizedDomains)" "any domain"
+  local NAUTH; NAUTH=$(csv_to_json "$AUTH" | jq 'length')
+  if [ "$NAUTH" = 0 ]; then chosen "Reports kept for ${C_CYAN}any domain${C_RESET}"
+  else chosen "Reports kept for ${C_CYAN}${ZONE_}${C_RESET} and ${C_CYAN}${NAUTH}${C_RESET} other domain(s), each with its _report._dmarc record"; fi
 
   echo ""
   header "6. Dashboard hostname"
   echo "Must be one level below ${ZONE_} so its Universal SSL certificate covers it."
   ask HOST "Hostname" "$(old .dashboard.host)" "generate dmarc-<random>"
+  if [ -n "$HOST" ]; then chosen "Dashboard at ${C_CYAN}https://${HOST}${C_RESET}"; else chosen "Dashboard host generated on first deploy (dmarc-<random>.${ZONE_})"; fi
 
   echo ""
   header "7. Who may open the dashboard (Cloudflare Access)"
@@ -452,6 +463,8 @@ setup_profile() {
   ask DOMAINS "Email domains (e.g. company.com)" "$(oldl .access.emailDomains)" "no email domains"
   ask IPS "IP ranges (e.g. 203.0.113.0/24)" "$(oldl .access.ips)" "no IP ranges"
   [ -n "$EMAILS$DOMAINS$IPS" ] || die "Set at least one email, email domain, or IP range."
+  chosen "Allowed: $(jq -rn --argjson e "$(csv_to_json "$EMAILS")" --argjson d "$(csv_to_json "$DOMAINS")" --argjson i "$(csv_to_json "$IPS")" \
+    '[($e|select(length>0)|"emails \(join(", "))"), ($d|select(length>0)|"email domains \(join(", "))"), ($i|select(length>0)|"IP ranges \(join(", ")) (required in addition)")] | join("; ")')"
 
   local JSON
   JSON=$(jq -n --arg cfp "$CFP" --arg acc "$ACC" --arg zone "$ZONE_" --arg lp "$LOCAL" --arg sub "$SUB" --arg host "$HOST" \
