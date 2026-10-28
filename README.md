@@ -38,7 +38,7 @@ Email Routing needs no manual step. Deploy enables it on the receiving domain wh
 git clone https://github.com/richardevs/dmarc-dashboard-kit.git
 cd dmarc-dashboard-kit
 pnpm install
-pnpm run deploy
+bash deploy.sh
 ```
 
 On first run, deploy walks you through creating `profiles/default.json`: it logs in, lists your accounts and zones to pick from, suggests a receiving subdomain when the zone already has a mail provider, and pre-fills the Access email from your login. **`--setup` is the only way to change a profile:** run `bash deploy.sh [--profile <name>] --setup` again and press Enter to keep each current value. Profiles carry a checksum, and deploy refuses one that was edited by hand until it is saved through `--setup` again. [`profiles/example.json`](profiles/example.json) shows a complete profile for reference. The fields:
@@ -66,7 +66,7 @@ Profiles hold no credentials — each person logs in with their own Cloudflare a
 
 ### Upgrading from `.env`
 
-Just run `pnpm run deploy`: an existing `.env` is converted into `profiles/default.json` and, after you confirm, moved to `.env.legacy` (`cf` would otherwise read its token). Review the result with `bash deploy.sh --setup`, then deploy. A leftover `wrangler.toml` is no longer used; compare it with `cloudflare.config.ts`, then remove it.
+Just run `bash deploy.sh`: an existing `.env` is converted into `profiles/default.json` and, after you confirm, moved to `.env.legacy` (`cf` would otherwise read its token). Review the result with `bash deploy.sh --setup`, then deploy. A leftover `wrangler.toml` is no longer used; compare it with `cloudflare.config.ts`, then remove it.
 
 ## What Deploy Automates
 
@@ -150,7 +150,7 @@ To move report ingestion to a new zone on the same account:
 
 1. Add the zone to Cloudflare.
 2. Run `bash deploy.sh --setup` and pick the new zone and a dashboard hostname in it (or let one be generated).
-3. Run `pnpm run deploy`. The worker, D1 database, Access, and **all stored reports** are reused.
+3. Run `bash deploy.sh`. The worker, D1 database, Access, and **all stored reports** are reused.
 4. Point each monitored domain's `rua=` at the new address.
 
 Keep the old zone live for **1–2 weeks** so in-flight reports still arrive, then run `bash deploy.sh --cleanup` and tick the old zone's routing rule and DNS records.
