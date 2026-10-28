@@ -260,9 +260,11 @@ login() {
 logged_in() { cf auth whoami 2>/dev/null | jq -e '.authenticated and .tokenValid != false' >/dev/null; }
 
 # --- Setup mode: build a profile interactively ---
-# ask <var> <prompt> [default] [label shown when the default is empty] — "-" clears the default.
+# ask <var> <prompt> [default] [what Enter means when the default is empty] — "-" clears the default.
+# The brackets show what Enter submits: a value, or "Enter = …" when that is nothing.
 ask() {
-  local REPLY_ SHOWN="${3:-${4:-}}"
+  local REPLY_ SHOWN="${3:-}"
+  [ -z "$SHOWN" ] && [ -n "${4:-}" ] && SHOWN="Enter = $4"
   printf "%s%s: " "$2" "${SHOWN:+ ${C_DIM}[${SHOWN}]${C_RESET}}"
   { read -r REPLY_ </dev/tty; } 2>/dev/null || die "--setup needs an interactive terminal."
   REPLY_="${REPLY_:-${3:-}}"
@@ -317,7 +319,7 @@ setup_profile() {
   oldl() { [ -n "$OLD" ] && jq -r "($1 // []) | join(\", \")" "$OLD" || true; }
 
   header "=== Profile setup ==="
-  echo "${C_DIM}Enter accepts the [default]; type - to clear it.${C_RESET}"
+  echo "${C_DIM}Enter accepts what is in [brackets]; type - to clear a value.${C_RESET}"
   echo ""
   choose_profile
   # Existing values become the defaults, so re-running only changes what you type.
@@ -388,7 +390,7 @@ setup_profile() {
     DEF_SUB="dmarc"
   fi
   [ -n "$OLD" ] && DEF_SUB=$(old .dmarc.subdomain)
-  ask SUB "Subdomain (e.g. dmarc → rua@dmarc.${ZONE_}; empty = the root)" "$DEF_SUB" "none: the root"
+  ask SUB "Subdomain (e.g. dmarc → rua@dmarc.${ZONE_})" "$DEF_SUB" "the root"
   RECV="${SUB:+${SUB}.}${ZONE_}"
   if [ -n "$SUB" ]; then
     # A generic name may already be in use; existing mail on it would be taken over.
@@ -404,21 +406,21 @@ setup_profile() {
   echo ""
   header "5. Other domains reporting here"
   echo "Domains outside ${ZONE_} whose rua= points at ${LOCAL}@${RECV} must be authorized."
-  echo "List them comma-separated (e.g. example.org, example.net), or leave empty to accept any domain."
-  ask AUTH "Authorized domains" "$(oldl .dmarc.authorizedDomains)" "none: any domain"
+  echo "List them comma-separated; with none listed, reports for any domain are kept."
+  ask AUTH "Authorized domains (e.g. example.org, example.net)" "$(oldl .dmarc.authorizedDomains)" "any domain"
 
   echo ""
   header "6. Dashboard hostname"
   echo "Must be one level below ${ZONE_} so its Universal SSL certificate covers it."
-  ask HOST "Hostname (empty = generate dmarc-<random>.${ZONE_} on deploy)" "$(old .dashboard.host)" "none: generate"
+  ask HOST "Hostname" "$(old .dashboard.host)" "generate dmarc-<random>"
 
   echo ""
   header "7. Who may open the dashboard (Cloudflare Access)"
   echo "Emails and email domains are OR'd; IP ranges, when set, are required in addition."
   EMAILS=$(oldl .access.emails)
   ask EMAILS "Emails (comma-separated)" "${EMAILS:-$(echo "$WHO" | jq -r '.email // empty')}"
-  ask DOMAINS "Email domains (e.g. company.com)" "$(oldl .access.emailDomains)" "none"
-  ask IPS "IP ranges (e.g. 203.0.113.0/24)" "$(oldl .access.ips)" "none"
+  ask DOMAINS "Email domains (e.g. company.com)" "$(oldl .access.emailDomains)" "no email domains"
+  ask IPS "IP ranges (e.g. 203.0.113.0/24)" "$(oldl .access.ips)" "no IP ranges"
   [ -n "$EMAILS$DOMAINS$IPS" ] || die "Set at least one email, email domain, or IP range."
 
   local JSON
