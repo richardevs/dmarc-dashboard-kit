@@ -1000,8 +1000,8 @@ confirm_d1_deletion() {
   local I STATS TYPED
   for ((I = 0; I < ${#ITEM_KIND[@]}; I++)); do
     [ "${ITEM_KIND[$I]}" = d1 ] && [ "${ITEM_ON[$I]}" = 1 ] || continue
-    STATS=$(cf d1 query "${ITEM_ID[$I]}" --sql "SELECT COUNT(*) AS n, date(MAX(date_range_end), 'unixepoch') AS last FROM reports" 2>/dev/null \
-      | jq -r '.[0].results[0] | "\(.n) reports (latest \(.last // "none"))"' || echo "an unknown number of reports")
+    STATS=$(cf d1 query "${ITEM_ID[$I]}" --sql "SELECT COUNT(*) AS n, date(MIN(date_range_begin), 'unixepoch') AS first, date(MAX(date_range_end), 'unixepoch') AS last FROM reports" 2>/dev/null \
+      | jq -r '.[0].results[0] | if .n == 0 then "no reports" else "\(.n) reports from \(.first) to \(.last)" end' || echo "an unknown number of reports")
     echo "${C_RED}${C_BOLD}D1 database ${DB_NAME} holds ${STATS}.${C_RESET}"
     echo "Deleting it cannot be undone. Copy the reports first if you need them:"
     echo "  bash deploy.sh --profile <target> --migrate-from=${PROFILE}"
