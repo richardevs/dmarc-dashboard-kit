@@ -146,14 +146,16 @@ To stop receiving on the subdomain, remove it in the dashboard (zone → Email �
 
 ## Changing the Receiving Domain
 
-To move report ingestion to a new zone on the same account:
+**On the same Cloudflare account**, change the zone of the existing profile; the worker, D1 database, Access, and **all stored reports** stay as they are, so nothing needs copying:
 
-1. Add the zone to Cloudflare.
+1. Add the new zone to Cloudflare.
 2. Run `bash deploy.sh --setup` and pick the new zone and a dashboard hostname in it (or let one be generated).
-3. Run `bash deploy.sh`. The worker, D1 database, Access, and **all stored reports** are reused.
+3. Run `bash deploy.sh`. The old dashboard host is retired automatically.
 4. Point each monitored domain's `rua=` at the new address.
 
-Keep the old zone live for **1–2 weeks** so in-flight reports still arrive, then run `bash deploy.sh --cleanup` and tick the old zone's routing rule and DNS records.
+Keep the old zone's routing rule for **1–2 weeks** so in-flight reports still arrive — `bash deploy.sh --verify` lists it under leftovers meanwhile — then run `bash deploy.sh --cleanup` and tick the old zone's routing rule and DNS records.
+
+**On a different Cloudflare account** (for example, moving from a personal to a company account), create a new profile for that account with `bash deploy.sh --setup`, deploy it, and copy the stored reports across with `bash deploy.sh --profile <new> --migrate-from=<old>` (see [Moving reports between deployments](#moving-reports-between-deployments)). Two profiles on the same account would share one worker and database, so use this only across accounts.
 
 ## Local Development
 

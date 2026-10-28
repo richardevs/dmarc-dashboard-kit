@@ -1263,11 +1263,13 @@ fi
 KEEP_HOSTS="[]"
 PREV_HOST=$([ -n "$APP_ID" ] && cf zero-trust access applications get "$APP_ID" | jq -r '.domain // empty' || true)
 if [ -n "$PREV_HOST" ] && [ "$PREV_HOST" != "$DASHBOARD_HOST" ] && [[ "$PREV_HOST" != *.workers.dev ]]; then
-  PREV_REC=$(cf dns records list --zone "$ZONE" --name "$PREV_HOST" | jq -c 'first(.[]) // empty')
+  # The host is one level below its zone, which may be an old zone after a zone change.
+  PREV_ZONE="${PREV_HOST#*.}"
+  PREV_REC=$(cf dns records list --zone "$PREV_ZONE" --name "$PREV_HOST" 2>/dev/null | jq -c 'first(.[]) // empty' || true)
   if [ -z "$PREV_REC" ]; then
     :
   elif echo "$PREV_REC" | jq -e --arg c "$MANAGED_TAG" '.comment == $c' >/dev/null; then
-    cf dns records delete "$(echo "$PREV_REC" | jq -r .id)" --zone "$ZONE" --force >/dev/null
+    cf dns records delete "$(echo "$PREV_REC" | jq -r .id)" --zone "$PREV_ZONE" --force >/dev/null
     echo "  Removed DNS record for the previous dashboard host ${PREV_HOST}"
   else
     KEEP_HOSTS=$(jq -cn --arg h "$PREV_HOST" '[$h]')
