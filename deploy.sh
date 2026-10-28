@@ -260,10 +260,10 @@ login() {
 logged_in() { cf auth whoami 2>/dev/null | jq -e '.authenticated and .tokenValid != false' >/dev/null; }
 
 # --- Setup mode: build a profile interactively ---
-# ask <var> <prompt> [default] — "-" clears the default.
+# ask <var> <prompt> [default] [label shown when the default is empty] — "-" clears the default.
 ask() {
-  local REPLY_
-  printf "%s%s: " "$2" "${3:+ ${C_DIM}[${3}]${C_RESET}}"
+  local REPLY_ SHOWN="${3:-${4:-}}"
+  printf "%s%s: " "$2" "${SHOWN:+ ${C_DIM}[${SHOWN}]${C_RESET}}"
   { read -r REPLY_ </dev/tty; } 2>/dev/null || die "--setup needs an interactive terminal."
   REPLY_="${REPLY_:-${3:-}}"
   [ "$REPLY_" = "-" ] && REPLY_=""
@@ -388,7 +388,7 @@ setup_profile() {
     DEF_SUB="dmarc"
   fi
   [ -n "$OLD" ] && DEF_SUB=$(old .dmarc.subdomain)
-  ask SUB "Subdomain (e.g. dmarc → rua@dmarc.${ZONE_}; empty = the root)" "$DEF_SUB"
+  ask SUB "Subdomain (e.g. dmarc → rua@dmarc.${ZONE_}; empty = the root)" "$DEF_SUB" "none: the root"
   RECV="${SUB:+${SUB}.}${ZONE_}"
   if [ -n "$SUB" ]; then
     # A generic name may already be in use; existing mail on it would be taken over.
@@ -405,20 +405,20 @@ setup_profile() {
   header "5. Other domains reporting here"
   echo "Domains outside ${ZONE_} whose rua= points at ${LOCAL}@${RECV} must be authorized."
   echo "List them comma-separated (e.g. example.org, example.net), or leave empty to accept any domain."
-  ask AUTH "Authorized domains" "$(oldl .dmarc.authorizedDomains)"
+  ask AUTH "Authorized domains" "$(oldl .dmarc.authorizedDomains)" "none: any domain"
 
   echo ""
   header "6. Dashboard hostname"
   echo "Must be one level below ${ZONE_} so its Universal SSL certificate covers it."
-  ask HOST "Hostname (empty = generate dmarc-<random>.${ZONE_} on deploy)" "$(old .dashboard.host)"
+  ask HOST "Hostname (empty = generate dmarc-<random>.${ZONE_} on deploy)" "$(old .dashboard.host)" "none: generate"
 
   echo ""
   header "7. Who may open the dashboard (Cloudflare Access)"
   echo "Emails and email domains are OR'd; IP ranges, when set, are required in addition."
   EMAILS=$(oldl .access.emails)
   ask EMAILS "Emails (comma-separated)" "${EMAILS:-$(echo "$WHO" | jq -r '.email // empty')}"
-  ask DOMAINS "Email domains (e.g. company.com)" "$(oldl .access.emailDomains)"
-  ask IPS "IP ranges (e.g. 203.0.113.0/24)" "$(oldl .access.ips)"
+  ask DOMAINS "Email domains (e.g. company.com)" "$(oldl .access.emailDomains)" "none"
+  ask IPS "IP ranges (e.g. 203.0.113.0/24)" "$(oldl .access.ips)" "none"
   [ -n "$EMAILS$DOMAINS$IPS" ] || die "Set at least one email, email domain, or IP range."
 
   local JSON
