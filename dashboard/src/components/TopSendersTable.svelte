@@ -191,7 +191,7 @@
     </div>
   </div>
 
-  <p class="note">Pass = DMARC disposition: none. Fail = quarantine or reject.<br>Country and network shown with "Show Details": <a href="https://db-ip.com" target="_blank" rel="noopener noreferrer">IP Geolocation by DB-IP</a>.</p>
+  <p class="note">Pass = DMARC disposition: none. Fail = quarantine or reject.</p>
 
   <div aria-live="polite">
   {#if activeTab === "all" && allLoading && !allSendersData}
@@ -259,6 +259,11 @@
         <button aria-label="Next page" disabled={allSendersData.page >= totalPages} onclick={() => goToPage(allSendersData!.page + 1)}>Next &rsaquo;</button>
         <button aria-label="Last page" disabled={allSendersData.page >= totalPages} onclick={() => goToPage(totalPages)}>&raquo;</button>
       </div>
+    {/if}
+
+    {#if showAuthCols}
+      <!-- DB-IP Lite (CC BY 4.0) requires this link wherever its data is shown. -->
+      <p class="geo-credit"><a href="https://db-ip.com" target="_blank" rel="noopener noreferrer">IP Geolocation by DB-IP</a></p>
     {/if}
   {/if}
   </div>
@@ -332,8 +337,9 @@
   }
   .loading { text-align: center; color: var(--muted, #64748b); font-size: 0.85rem; padding: 2rem 0; }
   .note { margin: 0 0 0.75rem; font-size: 0.75rem; color: var(--muted, #64748b); }
-  .note a { color: var(--muted, #64748b); text-decoration: underline; }
-  .note a:hover { color: var(--text, #1e293b); }
+  .geo-credit { margin: 0.5rem 0 0; text-align: right; font-size: 0.7rem; color: var(--muted, #64748b); }
+  .geo-credit a { color: inherit; text-decoration: none; }
+  .geo-credit a:hover { color: var(--text, #1e293b); }
   table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
   th, td {
     text-align: left;
