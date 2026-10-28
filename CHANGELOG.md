@@ -38,13 +38,9 @@ All notable changes to this project are documented here. The format follows [Kee
 - DNS records created by the script carry the comment `managed-by:dmarc-dashboard-kit`. Records removed from `dmarc.authorizedDomains` are deleted on the next deploy, and cleanup only deletes tagged records (plus untagged ones from earlier versions).
 
 ### Fixed
-- Lookups against Cloudflare are retried (up to 3 tries) on temporary server errors (5xx); changes are never retried, so a record is never created twice.
-- `pnpm run migrate:local` now migrates the database the local dev server uses (`.wrangler/state`).
 - A report attachment delivered as a partial byte view could include bytes outside the attachment.
 - Select the DMARC report attachment by media type and filename (RFC 9990).
 - Dashboard fetches ignore stale responses and no longer send duplicate IP-info requests.
-- `.env` values containing spaces (e.g. `REPORT_AUTHORIZED_DOMAINS=a.com, b.org`) were mis-parsed.
-- Email routing rules are listed per zone, so other zones' rules on the same account are never matched.
 
 ## [1.0.1] - 2026-06-03
 

@@ -72,7 +72,7 @@ GitHub release notes are written in Simplified Technical English (ASD-STE100):
 - Plain, approved words; no idioms, contractions, or phrasal verbs ("remove", not "get rid of").
 - Use the same word for the same thing everywhere.
 
-Group the notes as: **Upgrading from x.y** (only changes that need action from existing users), **New**, **Changes**, **Fixes**. Mark something as breaking only when an existing setup stops working or needs action. Base the notes on `CHANGELOG.md`, which collects every user-facing change under `[Unreleased]` as work happens.
+Group the notes as: **Upgrading from x.y** (only changes that need action from existing users), **New**, **Changes**, **Fixes**. Mark something as breaking only when an existing setup stops working or needs action. Base the notes on `CHANGELOG.md`, which collects every user-facing change under `[Unreleased]` as work happens. A fix to something that was never released (a bug in an unreleased feature) is not a fix: fold it into that feature's entry instead of listing it under Fixed.
 
 ## Code Audit Guidelines
 
