@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Scan staged changes for secrets before every commit (enabled by `pnpm install`,
+# which sets core.hooksPath to .githooks). Bypass once with: git commit --no-verify
+if ! command -v betterleaks >/dev/null 2>&1; then
+  echo "pre-commit: betterleaks not installed, skipping the secret scan (brew install betterleaks)." >&2
+  exit 0
+fi
+exec betterleaks git --pre-commit --staged --redact --no-banner --log-level warn .
