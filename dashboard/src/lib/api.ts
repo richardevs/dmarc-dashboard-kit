@@ -129,19 +129,13 @@ export interface IpInfo {
 const IP_CACHE_KEY = "ip-geo-cache";
 const IP_CACHE_MAX = 5000;
 
-export interface IpInfoResult {
-  data: Record<string, IpInfo>;
-  retryAfter: number; // seconds; 0 = not rate-limited
-}
-
-export async function fetchIpInfo(ips: string[]): Promise<IpInfoResult> {
+export async function fetchIpInfo(ips: string[]): Promise<Record<string, IpInfo>> {
   let cache: Record<string, IpInfo> = {};
   try {
     cache = JSON.parse(localStorage.getItem(IP_CACHE_KEY) || "{}");
   } catch { /* ignore corrupt cache */ }
 
   const uncached = ips.filter((ip) => !cache[ip]);
-  let retryAfter = 0;
 
   if (uncached.length > 0) {
     for (let i = 0; i < uncached.length; i += 100) {
@@ -151,11 +145,6 @@ export async function fetchIpInfo(ips: string[]): Promise<IpInfoResult> {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ips: chunk }),
       });
-      if (res.status === 429) {
-        const body = await res.json() as { retryAfter?: number };
-        retryAfter = body.retryAfter ?? 60;
-        break; // stop sending remaining chunks
-      }
       if (res.ok) {
         const results: IpInfo[] = await res.json();
         for (const r of results) {
@@ -177,6 +166,6 @@ export async function fetchIpInfo(ips: string[]): Promise<IpInfoResult> {
   for (const ip of ips) {
     if (cache[ip]) data[ip] = cache[ip];
   }
-  return { data, retryAfter };
+  return data;
 }
 

@@ -169,6 +169,9 @@ importers:
       fast-xml-parser:
         specifier: ^5.11.2
         version: 5.11.2
+      mmdb-lib:
+        specifier: ^3.0.3
+        version: 3.0.3
       postal-mime:
         specifier: ^4.1.4
         version: 4.1.4
@@ -179,6 +182,9 @@ importers:
       '@cloudflare/workers-types':
         specifier: ^5.20261027.1
         version: 5.20261027.1
+      '@types/node':
+        specifier: ^25.9.9
+        version: 25.9.9
       cf:
         specifier: 1.0.0-beta.23
         version: 1.0.0-beta.23(@types/node@25.9.9)
@@ -955,6 +961,10 @@ packages:
     resolution: {integrity: sha512-SHY8A98gCvmrnBLqABHRTSh3duAL1z+tHPRZu/tqxHFqVARrZ4oQis/ALYwp3XvzHvs6B/ff/CdcCafqP+cOFA==}
     engines: {node: '>=22.0.0'}
 
+  mmdb-lib@3.0.3:
+    resolution: {integrity: sha512-xQPoBXcNjjHiOvOraFBKtA++uNWF6aCVHL9dRKFXEov8eI3QJwtgiw3qApsonFT5SpoqsEVISUTg3HIDs2DiXw==}
+    engines: {node: '>=10', npm: '>=6'}
+
   mri@1.2.0:
     resolution: {integrity: sha512-tzzskb3bG8LvYGFF/mDTpq3jpI6Q9wc3LEmBaghu+DdCssd1FakN7Bc0hVNmEyGq1bq3RgfkCb3cmQLpNPOroA==}
     engines: {node: '>=4'}
@@ -1693,6 +1703,8 @@ snapshots:
       - '@types/node'
       - bufferutil
       - utf-8-validate
+
+  mmdb-lib@3.0.3: {}
 
   mri@1.2.0: {}
 

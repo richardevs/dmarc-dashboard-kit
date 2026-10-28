@@ -1102,6 +1102,29 @@ pnpm install --frozen-lockfile
 pnpm --filter dashboard run build
 echo "  Built to dashboard/dist/"
 
+# IP geolocation databases (DB-IP Lite, CC BY 4.0), served to the worker as static
+# assets (see src/geo.ts). Published monthly; cached per month in .cache/dbip/.
+fetch_geo_db() {  # fetch_geo_db <country|asn>
+  local KIND="$1" MONTH FILE
+  for MONTH in "$(date +%Y-%m)" "$(date -v-1m +%Y-%m 2>/dev/null || date -d '1 month ago' +%Y-%m)"; do
+    FILE=".cache/dbip/dbip-${KIND}-lite-${MONTH}.mmdb"
+    if [ ! -s "$FILE" ]; then
+      mkdir -p .cache/dbip
+      curl -fsSL "https://download.db-ip.com/free/dbip-${KIND}-lite-${MONTH}.mmdb.gz" 2>/dev/null | gunzip > "$FILE.tmp" 2>/dev/null \
+        && [ -s "$FILE.tmp" ] && mv "$FILE.tmp" "$FILE" || rm -f "$FILE.tmp"
+    fi
+    if [ -s "$FILE" ]; then
+      mkdir -p dashboard/dist/_geo
+      cp "$FILE" "dashboard/dist/_geo/dbip-${KIND}-lite.mmdb"
+      echo "  IP data: DB-IP ${KIND} ${MONTH}"
+      return 0
+    fi
+  done
+  warn "Could not download the DB-IP ${KIND} database; sender IPs will show no ${KIND} data."
+}
+fetch_geo_db country
+fetch_geo_db asn
+
 # --- Step 5: Deploy worker ---
 echo ""
 echo "[5/7] Deploying worker..."

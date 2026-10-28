@@ -10,9 +10,7 @@ import {
   getReports,
   getReportDetail,
 } from "./db";
-
-// Module-level rate limit guard for ip-api.com
-let rateLimitUntil = 0;
+import { lookupIps } from "./geo";
 
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
@@ -104,33 +102,14 @@ async function route(
     return json(await getAllSenderIps(env.DB, days, domain, date, tz));
   }
 
-  // POST /api/ip-info — proxies batch IP geolocation to ip-api.com
+  // POST /api/ip-info — country and network owner for up to 100 IPs (local DB-IP lookup)
   if (path === "/api/ip-info" && request.method === "POST") {
-    const now = Date.now();
-    if (now < rateLimitUntil) {
-      const retryAfter = Math.ceil((rateLimitUntil - now) / 1000);
-      return json({ error: "rate_limited", retryAfter }, 429);
-    }
     const body = await request.json() as { ips?: unknown };
     const ips = body.ips;
     if (!Array.isArray(ips) || ips.length === 0 || ips.length > 100 || !ips.every((i) => typeof i === "string")) {
       return json({ error: "ips must be an array of 1-100 strings" }, 400);
     }
-    const payload = (ips as string[]).map((ip) => ({ query: ip, fields: "query,country,countryCode,org" }));
-    const upstream = await fetch("http://ip-api.com/batch", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    const rl = parseInt(upstream.headers.get("X-Rl") ?? "1");
-    const ttl = parseInt(upstream.headers.get("X-Ttl") ?? "60");
-    if (rl === 0 || upstream.status === 429) {
-      rateLimitUntil = Date.now() + ttl * 1000;
-    }
-    if (upstream.status === 429) {
-      return json({ error: "rate_limited", retryAfter: ttl }, 429);
-    }
-    return json(await upstream.json());
+    return json(await lookupIps(env, ips as string[]));
   }
 
   // GET /api/reports/:reportId — not called by the dashboard; available for future detail views or external consumers

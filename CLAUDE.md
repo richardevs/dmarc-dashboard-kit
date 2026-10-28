@@ -21,6 +21,7 @@ Single worker serves everything: `email()` for ingestion, `fetch()` for API (`/a
 ```bash
 # pnpm workspace: root = worker, dashboard/ = Svelte app
 pnpm install                  # install worker + dashboard dependencies
+pnpm add -w <pkg>             # add a worker dependency (root is a workspace package, so -w is required)
 pnpm update -r                # update worker + dashboard (plain `pnpm update` only updates the root; also `pnpm run update:all`)
 pnpm run dev                  # local dev (cf dev)
 bash deploy.sh [--profile <name>]  # deploy profiles/<name>.json (default: default)
@@ -40,6 +41,7 @@ pnpm --filter dashboard run check   # svelte-check + tsc
 - `src/email-handler.ts` — email parsing: postal-mime → gzip (DecompressionStream) / zip (unzipit) → fast-xml-parser → D1
 - `src/db.ts` — D1 insert (with batch chunking) and all query functions
 - `src/api.ts` — HTTP routing for `/api/*`, JSON responses (no CORS — same origin)
+- `src/geo.ts` — IP country/network lookup from the DB-IP Lite databases (downloaded by deploy.sh into the static assets, read via the ASSETS binding)
 - `src/types.ts` — Env, DmarcRecordRow, DMARC enums
 - `migrations/0001_init.sql` — D1 schema (reports + record_rows tables)
 - `migrations/0002_record_rows_unique.sql` — unique index on record_rows(report_id, source_ip, header_from)

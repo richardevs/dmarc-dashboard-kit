@@ -62,6 +62,10 @@ Then run `pnpm run deploy` again to deploy.
 
 Each `profiles/<name>.json` is a separate deployment (for example, personal and company accounts): `bash deploy.sh --profile company`. Set `cfLogin` so each profile uses its own login.
 
+### Sharing a profile in a team
+
+Profiles hold no credentials — each person logs in with their own Cloudflare account (`--login`), which needs access to the profile's account. To share a deployment's settings, commit the profile in your internal copy of the repo: add `!profiles/company.json` to `.gitignore` (or `git add -f profiles/company.json`). For automated deploys, `cf` also accepts a `CLOUDFLARE_API_TOKEN` from the environment, kept in your CI's secret store.
+
 ### Upgrading from `.env`
 
 Just run `pnpm run deploy`: an existing `.env` is converted into `profiles/default.json` and moved to `.env.legacy` (`cf` would otherwise read its token). Review the profile and deploy again.
@@ -127,6 +131,10 @@ The deploy script handles step 2 automatically:
 Records the script created are tagged with a DNS comment, so removing a domain from the list also removes its record on the next deploy.
 
 > **Warning:** `p=none` only monitors — it does **not** block spoofed emails. Once you've reviewed your DMARC reports and confirmed all legitimate senders pass DKIM/SPF, move to `p=quarantine` and then `p=reject` as soon as possible.
+
+## Sender IP details
+
+"Show Details" in the senders table adds each IP's country and network owner. Deploy downloads the free [DB-IP Lite](https://db-ip.com/db/lite.php) country and ASN databases (CC BY 4.0, refreshed monthly, cached in `.cache/dbip/`) into the dashboard's static assets, and the worker looks IPs up locally — no external API, token, or rate limit, and sender IPs never leave Cloudflare. The dashboard shows the required "IP Geolocation by DB-IP" credit.
 
 ## Receiving on a subdomain
 

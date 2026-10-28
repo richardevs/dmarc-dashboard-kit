@@ -12,22 +12,6 @@
   let ipInfoMap: Record<string, IpInfo> = $state({});
   let ipInfoLoading: boolean = $state(false);
   let ipInfoInflight = false;
-  let rateLimitCountdown: number = $state(0);
-  let countdownInterval: ReturnType<typeof setInterval> | null = null;
-
-  function startCountdown(seconds: number) {
-    rateLimitCountdown = seconds;
-    if (countdownInterval) clearInterval(countdownInterval);
-    countdownInterval = setInterval(() => {
-      rateLimitCountdown -= 1;
-      if (rateLimitCountdown <= 0) {
-        clearInterval(countdownInterval!);
-        countdownInterval = null;
-        rateLimitCountdown = 0;
-        if (showAuthCols) loadIpInfo();
-      }
-    }, 1000);
-  }
 
   async function loadIpInfo() {
     if (ipInfoInflight) return;
@@ -42,9 +26,7 @@
       if (ips.length === 0) return;
       ipInfoLoading = true;
       try {
-        const result = await fetchIpInfo(ips);
-        ipInfoMap = { ...ipInfoMap, ...result.data };
-        if (result.retryAfter > 0) startCountdown(result.retryAfter);
+        ipInfoMap = { ...ipInfoMap, ...(await fetchIpInfo(ips)) };
       } finally {
         ipInfoLoading = false;
       }
@@ -90,8 +72,6 @@
     allSort = "total_count";
     allDir = "desc";
     ipInfoMap = {};
-    if (countdownInterval) { clearInterval(countdownInterval); countdownInterval = null; }
-    rateLimitCountdown = 0;
     untrack(() => {
       if (activeTab === "all") {
         fetchAllSenders();
@@ -208,13 +188,10 @@
     </div>
     <div class="toggle-auth-wrap">
       <button class="toggle-auth" class:active={showAuthCols} aria-pressed={showAuthCols} onclick={toggleAuthCols}>{showAuthCols ? "Hide Details" : "Show Details"}</button>
-      {#if showAuthCols && rateLimitCountdown > 0}
-        <span class="rate-limit-note">IP lookup limited, retrying in {rateLimitCountdown}s</span>
-      {/if}
     </div>
   </div>
 
-  <p class="note">Pass = DMARC disposition: none. Fail = quarantine or reject.<br>IP data provided by <a href="https://ip-api.com/docs/legal" target="_blank" rel="noopener noreferrer">ip-api.com</a> when "Show Details" is active.</p>
+  <p class="note">Pass = DMARC disposition: none. Fail = quarantine or reject.<br>Country and network shown with "Show Details": <a href="https://db-ip.com" target="_blank" rel="noopener noreferrer">IP Geolocation by DB-IP</a>.</p>
 
   <div aria-live="polite">
   {#if activeTab === "all" && allLoading && !allSendersData}
@@ -342,10 +319,6 @@
     background: var(--text, #1e293b);
     color: var(--bg, #f8fafc);
     border-color: var(--text, #1e293b);
-  }
-  .rate-limit-note {
-    font-size: 0.7rem;
-    color: var(--muted, #64748b);
   }
   .geo-info {
     display: block;
