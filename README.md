@@ -35,7 +35,7 @@ Email Routing needs no manual step. Deploy enables it on the receiving domain wh
 ## Quick Start
 
 ```bash
-git clone <this-repo>
+git clone https://github.com/richardevs/dmarc-dashboard-kit.git
 cd dmarc-dashboard-kit
 pnpm install
 pnpm run deploy
