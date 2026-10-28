@@ -965,6 +965,10 @@ pick_items() {
   done
 }
 
+selected_any_d1_found() {  # a D1 database was found (whether or not it is ticked)
+  local K; for K in "${ITEM_KIND[@]}"; do [ "$K" = d1 ] && return 0; done; return 1
+}
+
 selected() {  # selected <kind> — succeeds if any item of that kind is ticked
   local I
   for ((I = 0; I < ${#ITEM_KIND[@]}; I++)); do
@@ -988,6 +992,29 @@ delete_item() {
     d1)            [ "$MODE" = destroy ] && [ "${D1_DELETE_OK:-}" = "$ID" ] || { warn "Refusing to delete D1 database ${ID} without typed confirmation."; return 1; }
                    cf d1 delete "$ID" --force ;;
   esac >/dev/null
+}
+
+# confirm_d1_deletion — the database is the one thing a deploy cannot rebuild: show
+# what it holds and delete it only when its name is typed; anything else keeps it.
+confirm_d1_deletion() {
+  local I STATS TYPED
+  for ((I = 0; I < ${#ITEM_KIND[@]}; I++)); do
+    [ "${ITEM_KIND[$I]}" = d1 ] && [ "${ITEM_ON[$I]}" = 1 ] || continue
+    STATS=$(cf d1 query "${ITEM_ID[$I]}" --sql "SELECT COUNT(*) AS n, date(MAX(date_range_end), 'unixepoch') AS last FROM reports" 2>/dev/null \
+      | jq -r '.[0].results[0] | "\(.n) reports (latest \(.last // "none"))"' || echo "an unknown number of reports")
+    echo "${C_RED}${C_BOLD}D1 database ${DB_NAME} holds ${STATS}.${C_RESET}"
+    echo "Deleting it cannot be undone. Copy the reports first if you need them:"
+    echo "  bash deploy.sh --profile <target> --migrate-from=${PROFILE}"
+    TYPED=""
+    printf "Type the database name (%s) to delete it, or press Enter to keep it: " "$DB_NAME"
+    { read -r TYPED </dev/tty; } 2>/dev/null || TYPED=""
+    if [ "$TYPED" = "$DB_NAME" ]; then
+      D1_DELETE_OK="${ITEM_ID[$I]}"
+    else
+      ITEM_ON[$I]=0
+      echo "  ${C_GREEN}✓${C_RESET} Keeping ${DB_NAME} and its reports."
+    fi
+  done
 }
 
 # --cleanup removes leftovers only (resources the profile no longer uses);
@@ -1019,37 +1046,30 @@ cleanup() {
       return
     fi
     for ((I = 0; I < ${#ITEM_KIND[@]}; I++)); do ITEM_ON[$I]=1; done
-    # The database is the one thing that cannot be rebuilt: show what it holds and
-    # delete it only when its name is typed; anything else keeps it.
-    for ((I = 0; I < ${#ITEM_KIND[@]}; I++)); do
-      [ "${ITEM_KIND[$I]}" = d1 ] || continue
-      local STATS TYPED=""
-      STATS=$(cf d1 query "${ITEM_ID[$I]}" --sql "SELECT COUNT(*) AS n, date(MAX(date_range_end), 'unixepoch') AS last FROM reports" 2>/dev/null \
-        | jq -r '.[0].results[0] | "\(.n) reports (latest \(.last // "none"))"' || echo "an unknown number of reports")
-      echo ""
-      echo "${C_RED}${C_BOLD}D1 database ${DB_NAME} holds ${STATS}.${C_RESET}"
-      echo "Deleting it cannot be undone. Copy the reports first if you need them:"
-      echo "  bash deploy.sh --profile <target> --migrate-from=${PROFILE}"
-      printf "Type the database name (%s) to delete it, or press Enter to keep it: " "$DB_NAME"
-      { read -r TYPED </dev/tty; } 2>/dev/null || TYPED=""
-      if [ "$TYPED" = "$DB_NAME" ]; then
-        D1_DELETE_OK="${ITEM_ID[$I]}"
-      else
-        ITEM_ON[$I]=0
-        echo "  ${C_GREEN}✓${C_RESET} Keeping ${DB_NAME} and its reports; the rest of the deployment is still removed."
-      fi
-    done
   fi
 
   echo ""
   echo "Will delete:"
   for ((I = 0; I < ${#ITEM_KIND[@]}; I++)); do
-    [ "${ITEM_ON[$I]}" = 1 ] && echo "  • ${ITEM_LABEL[$I]}"
+    [ "${ITEM_ON[$I]}" = 1 ] || continue
+    if [ "${ITEM_KIND[$I]}" = d1 ]; then echo "  • ${ITEM_LABEL[$I]} ${C_DIM}(you confirm this separately next)${C_RESET}"
+    else echo "  • ${ITEM_LABEL[$I]}"; fi
   done
   echo ""
-  [ "$MODE" = destroy ] && echo "${C_RED}${C_BOLD}This removes the whole deployment of profile ${PROFILE}: reports stop arriving and the dashboard goes away.${C_RESET}"
-  [ "$MODE" = destroy ] && [ -n "${D1_DELETE_OK:-}" ] && echo "${C_RED}${C_BOLD}The D1 database ${DB_NAME} and all stored reports are deleted too.${C_RESET}"
-  confirm "Delete these resources?" || { echo "Aborted."; exit 0; }
+  local COUNT=0 NOTE=""
+  if [ "$MODE" = destroy ]; then
+    confirm_d1_deletion
+    echo ""
+    echo "${C_RED}${C_BOLD}This removes the whole deployment of profile ${PROFILE}: reports stop arriving and the dashboard goes away.${C_RESET}"
+    if [ -n "${D1_DELETE_OK:-}" ]; then
+      echo "${C_RED}${C_BOLD}The D1 database ${DB_NAME} and all stored reports are deleted too.${C_RESET}"
+      NOTE=" (including the database)"
+    elif selected_any_d1_found; then
+      NOTE=" (database kept)"
+    fi
+  fi
+  for ((I = 0; I < ${#ITEM_KIND[@]}; I++)); do [ "${ITEM_ON[$I]}" = 1 ] && COUNT=$((COUNT + 1)); done
+  confirm "Delete the ${COUNT} resource(s) above${NOTE}?" || { echo "Aborted."; exit 0; }
   echo ""
 
   # Ingestion first, then the worker before Access so the dashboard is never
