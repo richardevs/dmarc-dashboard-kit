@@ -2,22 +2,25 @@
   "name": "dmarc-dashboard-kit",
   "version": "1.0.1",
   "private": true,
+  "type": "module",
   "scripts": {
-    "dev": "wrangler dev",
+    "dev": "cf dev",
     "deploy": "bash deploy.sh",
-    "migrate": "for f in $(ls migrations/*.sql | sort); do wrangler d1 execute dmarc-reports --file=$f --remote; done",
-    "migrate:local": "for f in $(ls migrations/*.sql | sort); do wrangler d1 execute dmarc-reports --file=$f --local; done"
+    "migrate:local": "cf d1 migrations apply 00000000-0000-4000-8000-000000000000 --local --persist-to .wrangler/state",
+    "update:all": "pnpm update -r",
+    "prepare": "git config core.hooksPath .githooks",
+    "scan:secrets": "betterleaks git --redact --no-banner ."
   },
   "dependencies": {
-    "fast-xml-parser": "^5.9.3",
-    "pako": "^2.2.0",
-    "postal-mime": "^2.7.5",
-    "unzipit": "^1.4.3"
+    "fast-xml-parser": "^5.11.2",
+    "postal-mime": "^4.1.4",
+    "unzipit": "^2.1.1"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20260702.1",
-    "@types/pako": "^2.0.4",
-    "typescript": "^5.9.3",
-    "wrangler": "^4.107.1"
-  }
+    "@cloudflare/workers-types": "^5.20261027.1",
+    "cf": "1.0.0-beta.23",
+    "typescript": "^6.0.3",
+    "wrangler": "^4.153.0"
+  },
+  "packageManager": "pnpm@12.16.0"
 }

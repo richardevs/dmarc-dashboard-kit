@@ -1,3 +1,9 @@
+packages:
+  # The root (the worker) is listed too: cf refuses to deploy from a workspace root
+  # that is not itself one of the workspace's packages.
+  - .
+  - dashboard
+
 allowBuilds:
   esbuild: false
   sharp: false

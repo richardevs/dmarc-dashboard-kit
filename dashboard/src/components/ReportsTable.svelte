@@ -188,6 +188,7 @@
     font-size: 0.85rem;
     text-align: center;
     -moz-appearance: textfield;
+    appearance: textfield;
   }
   .page-input::-webkit-inner-spin-button,
   .page-input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }

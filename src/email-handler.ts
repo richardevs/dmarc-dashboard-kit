@@ -1,6 +1,5 @@
 import PostalMime from "postal-mime";
 import * as unzipit from "unzipit";
-import * as pako from "pako";
 import { XMLParser } from "fast-xml-parser";
 
 import {
@@ -47,8 +46,9 @@ export async function handleEmail(
     attachment.content instanceof ArrayBuffer
       ? attachment.content
       : typeof attachment.content === "string"
-        ? new TextEncoder().encode(attachment.content).buffer as ArrayBuffer
-        : (attachment.content as Uint8Array).buffer as ArrayBuffer;
+        ? (new TextEncoder().encode(attachment.content).buffer as ArrayBuffer)
+        : // Copy just this view: .buffer alone could include bytes outside it.
+          (new Uint8Array(attachment.content as Uint8Array).buffer as ArrayBuffer);
 
   // Extract and parse the report. Senders mislabel the MIME type (e.g. au.com
   // sends gzip as application/octet-stream), so we sniff the content itself.
@@ -115,8 +115,10 @@ async function getDMARCReportXML(attachment: { content: ArrayBuffer }) {
 
   // Detect the container by magic bytes rather than the (often wrong) MIME type.
   if (bytes[0] === 0x1f && bytes[1] === 0x8b) {
-    // gzip
-    xml = pako.inflate(bytes, { to: "string" });
+    // gzip, decompressed with the runtime's built-in DecompressionStream
+    xml = await new Response(
+      new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"))
+    ).text();
   } else if (bytes[0] === 0x50 && bytes[1] === 0x4b) {
     // zip ("PK")
     xml = await getXMLFromZip(attachment.content);
