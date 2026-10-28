@@ -32,6 +32,21 @@ fi
 
 die()  { echo "${C_RED}ERROR:${C_RESET} $*" >&2; exit 1; }
 warn() { echo "  ${C_YELLOW}WARNING:${C_RESET} $*"; }
+# Status lines shared by --list and --verify.
+V_FAIL=0; V_WARN=0
+v_ok()   { echo "  ${C_GREEN}✓${C_RESET} $*"; }
+v_warn() { echo "  ${C_YELLOW}⚠${C_RESET} $*"; V_WARN=$((V_WARN + 1)); }
+v_fail() { echo "  ${C_RED}✗${C_RESET} $*"; V_FAIL=$((V_FAIL + 1)); }
+
+header() { echo "${C_BOLD}${C_CYAN}$*${C_RESET}"; }
+# kv <label> <value> [color] — empty, "-" and "(…)" values are dimmed.
+kv() {
+  local V="$2" COLOR="${3:-}"
+  case "$V" in ""|-|"("*) V="${C_DIM}${V:--}${C_RESET}" ;; *) [ -n "$COLOR" ] && V="${COLOR}${V}${C_RESET}" ;; esac
+  printf "  ${C_DIM}%-22s${C_RESET} %s\n" "$1" "$V"
+}
+csv_or_dash() { echo "$1" | jq -r 'join(", ") | if . == "" then "-" else . end'; }
+
 # confirm "Question?" — succeeds only when the answer is exactly Y.
 confirm() {
   local REPLY=""
@@ -248,7 +263,7 @@ logged_in() { cf auth whoami 2>/dev/null | jq -e '.authenticated and .tokenValid
 # ask <var> <prompt> [default] — "-" clears the default.
 ask() {
   local REPLY_
-  printf "%s%s: " "$2" "${3:+ [${3}]}"
+  printf "%s%s: " "$2" "${3:+ ${C_DIM}[${3}]${C_RESET}}"
   { read -r REPLY_ </dev/tty; } 2>/dev/null || die "--setup needs an interactive terminal."
   REPLY_="${REPLY_:-${3:-}}"
   [ "$REPLY_" = "-" ] && REPLY_=""
@@ -271,25 +286,77 @@ pick() {
   done
 }
 
+# Without --profile, let the user choose which profile to create or edit.
+choose_profile() {
+  local F N ROWS="" CHOICE
+  [ "$PROFILE_SET" = true ] && return
+  header "0. Profile"
+  for F in profiles/*.json; do
+    N=$(basename "$F" .json)
+    [ "$N" = example ] || [ ! -f "$F" ] && continue
+    ROWS+="$(printf '%s\t%-12s %s' "$N" "$N" "${C_DIM}$(jq -r '"\(.zone // "?") → \(.dashboard.host // "" | if . == "" then "host not generated yet" else . end)"' "$F" 2>/dev/null)${C_RESET}")"$'\n'
+  done
+  ROWS+="$(printf '__new__\t%s' "New profile…")"
+  pick CHOICE "Profile" "$([ -f profiles/default.json ] && echo default || echo __new__)" "$ROWS"
+  if [ "$CHOICE" = "__new__" ]; then
+    while :; do
+      ask CHOICE "Name for the new profile (letters, digits, - and _)" "$([ -f profiles/default.json ] || echo default)"
+      [[ "$CHOICE" =~ ^[A-Za-z0-9_-]+$ ]] && [ ! -f "profiles/${CHOICE}.json" ] && break
+      echo "  ${C_YELLOW}Use letters, digits, - and _, and a name that does not exist yet.${C_RESET}"
+    done
+  fi
+  PROFILE="$CHOICE"
+  PROFILE_FILE="profiles/${PROFILE}.json"
+  PROFILE_ARG=$([ "$PROFILE" != "default" ] && echo " --profile $PROFILE" || true)
+  echo ""
+}
+
 setup_profile() {
   local OLD="" CFP ACC ZONE_ SUB LOCAL AUTH HOST EMAILS DOMAINS IPS WHO ROWS MX RECV DEF_SUB
-  [ -f "$PROFILE_FILE" ] && jq empty "$PROFILE_FILE" 2>/dev/null && OLD="$PROFILE_FILE"
   old()  { [ -n "$OLD" ] && jq -r "$1 // empty" "$OLD" || true; }
   oldl() { [ -n "$OLD" ] && jq -r "($1 // []) | join(\", \")" "$OLD" || true; }
 
-  echo "${C_BOLD}=== Profile setup: ${PROFILE_FILE} ===${C_RESET}"
+  header "=== Profile setup ==="
   echo "${C_DIM}Enter accepts the [default]; type - to clear it.${C_RESET}"
-
   echo ""
-  echo "${C_BOLD}1. Cloudflare login${C_RESET}"
+  choose_profile
+  # Existing values become the defaults, so re-running only changes what you type.
+  [ -f "$PROFILE_FILE" ] && jq empty "$PROFILE_FILE" 2>/dev/null && OLD="$PROFILE_FILE"
+
+  header "1. Cloudflare login"
   echo "Each profile can use its own cf login, which keeps e.g. personal and company accounts apart."
-  ask CFP "cf login name (empty = cf's default login)" "$(old .cfLogin)"
-  CF_PROFILE="$CFP"
-  logged_in || login
+  local LOGINS NAME EMAIL
+  LOGINS=$("$CF_BIN" auth list 2>/dev/null | jq -r '.[]?.name' || true)
+  ROWS=""
+  for NAME in $(printf '%s\n' default $LOGINS | awk '!seen[$0]++'); do
+    if [ "$NAME" = default ]; then
+      EMAIL=$("$CF_BIN" auth whoami 2>/dev/null | jq -r 'if .authenticated then .email // "logged in" else "not logged in" end' || echo "not logged in")
+      ROWS+="$(printf '__default__\t%-14s %s' "default" "${C_DIM}${EMAIL} (cf's default login)${C_RESET}")"$'\n'
+    else
+      EMAIL=$("$CF_BIN" auth whoami --profile "$NAME" 2>/dev/null | jq -r 'if .authenticated then .email // "logged in" else "not logged in" end' || echo "not logged in")
+      ROWS+="$(printf '%s\t%-14s %s' "$NAME" "$NAME" "${C_DIM}${EMAIL}${C_RESET}")"$'\n'
+    fi
+  done
+  ROWS+="$(printf '__new__\t%s' "New login…")"
+  # pick cannot carry an empty value, so cf's default login travels as __default__.
+  local OLD_LOGIN; OLD_LOGIN=$(old .cfLogin)
+  pick CFP "Login" "${OLD_LOGIN:-__default__}" "$ROWS"
+  [ "$CFP" = "__default__" ] && CFP=""
+  if [ "$CFP" = "__new__" ]; then
+    while :; do
+      ask CFP "Name for the new login (letters, digits, - and _)" "$([ "$PROFILE" != default ] && echo "$PROFILE")"
+      [[ "$CFP" =~ ^[A-Za-z0-9_-]+$ ]] && [ "$CFP" != default ] && break
+    done
+    CF_PROFILE="$CFP"
+    login
+  else
+    CF_PROFILE="$CFP"
+    logged_in || login
+  fi
   WHO=$(cf auth whoami)
 
   echo ""
-  echo "${C_BOLD}2. Account${C_RESET}"
+  header "2. Account"
   ROWS=$(echo "$WHO" | jq -r '.accounts[]? | [.id, .name] | @tsv')
   [ -n "$ROWS" ] || die "This login has no accounts. Run: bash deploy.sh${PROFILE_ARG} --login"
   if [ "$(echo "$ROWS" | wc -l | tr -d ' ')" = 1 ]; then
@@ -301,14 +368,14 @@ setup_profile() {
   export CLOUDFLARE_ACCOUNT_ID="$ACC"
 
   echo ""
-  echo "${C_BOLD}3. Zone${C_RESET}"
+  header "3. Zone"
   echo "The zone that receives reports and hosts the dashboard."
   ROWS=$(cf zones list --account-id "$ACC" --per-page 50 | jq -r '.[] | [.name, .name] | @tsv')
   [ -n "$ROWS" ] || die "No zones on this account. Add a domain to Cloudflare first."
   pick ZONE_ "Zone" "$(old .zone)" "$ROWS"
 
   echo ""
-  echo "${C_BOLD}4. Receiving address${C_RESET}"
+  header "4. Receiving address"
   MX=$(cf dns records list --zone "$ZONE_" --type MX --name "$ZONE_" | jq -r '[.[].content] | join(", ")')
   DEF_SUB=""
   if [ -z "$MX" ]; then
@@ -335,18 +402,18 @@ setup_profile() {
   echo "  Reports go to ${C_CYAN}${LOCAL}@${RECV}${C_RESET}"
 
   echo ""
-  echo "${C_BOLD}5. Other domains reporting here${C_RESET}"
+  header "5. Other domains reporting here"
   echo "Domains outside ${ZONE_} whose rua= points at ${LOCAL}@${RECV} must be authorized."
   echo "List them comma-separated (e.g. example.org, example.net), or leave empty to accept any domain."
   ask AUTH "Authorized domains" "$(oldl .dmarc.authorizedDomains)"
 
   echo ""
-  echo "${C_BOLD}6. Dashboard hostname${C_RESET}"
+  header "6. Dashboard hostname"
   echo "Must be one level below ${ZONE_} so its Universal SSL certificate covers it."
   ask HOST "Hostname (empty = generate dmarc-<random>.${ZONE_} on deploy)" "$(old .dashboard.host)"
 
   echo ""
-  echo "${C_BOLD}7. Who may open the dashboard (Cloudflare Access)${C_RESET}"
+  header "7. Who may open the dashboard (Cloudflare Access)"
   echo "Emails and email domains are OR'd; IP ranges, when set, are required in addition."
   EMAILS=$(oldl .access.emails)
   ask EMAILS "Emails (comma-separated)" "${EMAILS:-$(echo "$WHO" | jq -r '.email // empty')}"
@@ -415,21 +482,6 @@ report_record_names() {
 }
 
 # --- List mode: show the profile's settings and what the script manages ---
-# Status lines shared by --list and --verify.
-V_FAIL=0; V_WARN=0
-v_ok()   { echo "  ${C_GREEN}✓${C_RESET} $*"; }
-v_warn() { echo "  ${C_YELLOW}⚠${C_RESET} $*"; V_WARN=$((V_WARN + 1)); }
-v_fail() { echo "  ${C_RED}✗${C_RESET} $*"; V_FAIL=$((V_FAIL + 1)); }
-
-header() { echo "${C_BOLD}${C_CYAN}$*${C_RESET}"; }
-# kv <label> <value> [color] — empty, "-" and "(…)" values are dimmed.
-kv() {
-  local V="$2" COLOR="${3:-}"
-  case "$V" in ""|-|"("*) V="${C_DIM}${V:--}${C_RESET}" ;; *) [ -n "$COLOR" ] && V="${COLOR}${V}${C_RESET}" ;; esac
-  printf "  ${C_DIM}%-22s${C_RESET} %s\n" "$1" "$V"
-}
-csv_or_dash() { echo "$1" | jq -r 'join(", ") | if . == "" then "-" else . end'; }
-
 list_profile() {
   local F N INFO
   header "Profiles"
