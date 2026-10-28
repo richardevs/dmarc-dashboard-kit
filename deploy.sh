@@ -47,12 +47,19 @@ kv() {
 }
 csv_or_dash() { echo "$1" | jq -r 'join(", ") | if . == "" then "-" else . end'; }
 
-# confirm "Question?" — succeeds only when the answer is exactly Y.
+# confirm "Question?" — exactly Y is yes, exactly N is no; anything else (even a stray
+# Enter) asks again, so a slip never discards a long setup. No terminal means no.
 confirm() {
   local REPLY=""
-  printf "%s [Y/N] " "$1"
-  { read -r REPLY </dev/tty; } 2>/dev/null || echo ""
-  [ "$REPLY" = "Y" ]
+  while :; do
+    printf "%s [Y/N] " "$1"
+    { read -r REPLY </dev/tty; } 2>/dev/null || { echo ""; return 1; }
+    case "$REPLY" in
+      Y) return 0 ;;
+      N) return 1 ;;
+      *) echo "  ${C_YELLOW}Answer Y or N.${C_RESET}" ;;
+    esac
+  done
 }
 
 usage() {
