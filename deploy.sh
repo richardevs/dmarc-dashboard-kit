@@ -285,6 +285,21 @@ session_label() {
     24h) echo "24 hours" ;; 168h) echo "1 week" ;; 730h) echo "1 month" ;; *) echo "$1" ;; esac
 }
 
+# offer "Run X now?" — for optional follow-ups: Y says yes, anything else just ends.
+offer() {
+  local REPLY=""
+  printf "%s [Y/N] " "$1"
+  { read -r REPLY </dev/tty; } 2>/dev/null || { echo ""; return 1; }
+  [ "$REPLY" = "Y" ]
+}
+
+# next_run <args…> — continue with another action as a fresh run, as if typed.
+next_run() {
+  SHOW_HINT="false"
+  echo ""
+  exec bash "$0" "$@"
+}
+
 # chosen <text> — confirms what a setup step ended up with.
 chosen() { echo "  ${C_GREEN}✓${C_RESET} $*"; }
 
@@ -510,6 +525,8 @@ setup_profile() {
   confirm "Write ${PROFILE_FILE}?" || { echo "Aborted."; exit 0; }
   save_profile "$PROFILE_FILE" "$JSON"
   echo "Saved. Deploy with: ${C_BOLD}bash deploy.sh${PROFILE_ARG}${C_RESET}"
+  echo ""
+  offer "${C_BOLD}Deploy profile ${PROFILE} now?${C_RESET}" && next_run --profile "$PROFILE"
 }
 
 # --- Load profile ---
@@ -1365,3 +1382,5 @@ echo "  ${C_DIM}_dmarc.example.com  TXT  \"v=DMARC1; p=none; rua=mailto:${DMARC_
 echo ""
 echo "${C_YELLOW}${C_BOLD}WARNING:${C_RESET}${C_YELLOW} p=none only monitors — it does NOT block spoofed emails.${C_RESET}"
 echo "${C_YELLOW}  Move to p=quarantine then p=reject once legitimate senders pass DKIM/SPF.${C_RESET}"
+echo ""
+offer "${C_BOLD}Run --verify now?${C_RESET}" && next_run --profile "$PROFILE" --verify
