@@ -162,6 +162,18 @@ cf() {
   fi
 }
 
+# Profiles are written only by this script (--setup, .env import, generated host).
+# _checksum lets every other run notice a profile changed by hand.
+PROFILE_NOTE="Managed by bash deploy.sh --setup. Do not edit by hand; run --setup to change it."
+profile_hash() { jq -S 'del(._note, ._checksum)' "$1" | { shasum -a 256 2>/dev/null || sha256sum; } | cut -c1-16; }
+save_profile() {  # save_profile <file> <json>
+  local TMP; TMP=$(mktemp)
+  echo "$2" | jq --arg n "$PROFILE_NOTE" '{_note: $n} + del(._note, ._checksum)' > "$TMP"
+  mkdir -p "$(dirname "$1")"
+  jq --arg c "$(profile_hash "$TMP")" '. + {_checksum: $c}' "$TMP" > "$1"
+  rm -f "$TMP"
+}
+
 # csv_to_json "a, b,,c d" → ["a","b","c","d"] (commas and/or spaces separate items)
 csv_to_json() {
   jq -cn --arg s "$1" '[$s | splits("[,\\s]+")] | map(select(length > 0))'
@@ -193,8 +205,8 @@ import_env() {
   ZONE=$(get CLOUDFLARE_ZONE_ID)
   ZONE_NAME=$(cf zones get --zone "$ZONE" 2>/dev/null | jq -r '.name // empty' || true)
 
-  mkdir -p profiles
-  jq -n \
+  local JSON
+  JSON=$(jq -n \
     --arg accountId "$(get CLOUDFLARE_ACCOUNT_ID)" \
     --arg zone "${ZONE_NAME:-$ZONE}" \
     --arg localPart "$(get DMARC_EMAIL)" \
@@ -209,7 +221,8 @@ import_env() {
       dmarc: { localPart: (if $localPart == "" then "dmarc" else $localPart end), subdomain: "", authorizedDomains: $authorizedDomains },
       dashboard: { host: "" },
       access: { emails: $emails, emailDomains: $emailDomains, ips: $ips }
-    }' > "$PROFILE_FILE"
+    }')
+  save_profile "$PROFILE_FILE" "$JSON"
 
   echo "Created ${C_CYAN}${PROFILE_FILE}${C_RESET}. The API token was not imported — deploy.sh logs in with cf instead."
   echo ""
@@ -453,8 +466,7 @@ setup_profile() {
   echo "$JSON"
   echo ""
   confirm "Write ${PROFILE_FILE}?" || { echo "Aborted."; exit 0; }
-  mkdir -p profiles
-  echo "$JSON" > "$PROFILE_FILE"
+  save_profile "$PROFILE_FILE" "$JSON"
   echo "Saved. Deploy with: ${C_BOLD}bash deploy.sh${PROFILE_ARG}${C_RESET}"
 }
 
@@ -464,7 +476,14 @@ if [ "$MODE" = "setup" ] || [ ! -f "$PROFILE_FILE" ]; then
   exit 0
 fi
 
-jq empty "$PROFILE_FILE" 2>/dev/null || die "$PROFILE_FILE is not valid JSON."
+jq empty "$PROFILE_FILE" 2>/dev/null || die "$PROFILE_FILE is not valid JSON. Run: bash deploy.sh${PROFILE_ARG} --setup"
+if [ "$(jq -r '._checksum // empty' "$PROFILE_FILE")" != "$(profile_hash "$PROFILE_FILE")" ]; then
+  CHANGED_MSG="${PROFILE_FILE} was changed outside --setup (or saved by an older version). Review and save it with: bash deploy.sh${PROFILE_ARG} --setup"
+  case "$MODE" in
+    list|verify|login) warn "$CHANGED_MSG"; echo "" ;;
+    *) die "$CHANGED_MSG" ;;
+  esac
+fi
 p()  { jq -r "$1 // empty" "$PROFILE_FILE"; }
 pj() { jq -c "$1 // []" "$PROFILE_FILE"; }
 
@@ -995,9 +1014,9 @@ if [ "$MODE" = "migrate" ]; then
 fi
 
 # --- Validate profile for deploy ---
-[ -n "$ZONE" ] || die "Set zone in $PROFILE_FILE."
+[ -n "$ZONE" ] || die "The profile has no zone. Run: bash deploy.sh${PROFILE_ARG} --setup"
 if [ "$ACCESS_EMAILS$ACCESS_EMAIL_DOMAINS$ACCESS_IPS" = "[][][]" ]; then
-  die "Set at least one of access.emails, access.emailDomains, or access.ips in $PROFILE_FILE."
+  die "The profile allows nobody into the dashboard. Add Access emails, email domains, or IP ranges with: bash deploy.sh${PROFILE_ARG} --setup"
 fi
 HAS_IDENTITY="false"
 [ "$ACCESS_EMAILS$ACCESS_EMAIL_DOMAINS" != "[][]" ] && HAS_IDENTITY="true"
@@ -1025,8 +1044,7 @@ if [ -z "$DASHBOARD_HOST" ]; then
   # receiving address. Generated once and saved, so it stays stable across deploys.
   SUFFIX=$(node -e 'const c="abcdefghijklmnopqrstuvwxyz0123456789";let s="";for(const b of require("crypto").randomBytes(5))s+=c[b%36];console.log(s)')
   DASHBOARD_HOST="dmarc-${SUFFIX}.${ZONE}"
-  TMP=$(mktemp)
-  jq --arg h "$DASHBOARD_HOST" '.dashboard.host = $h' "$PROFILE_FILE" > "$TMP" && mv "$TMP" "$PROFILE_FILE"
+  save_profile "$PROFILE_FILE" "$(jq --arg h "$DASHBOARD_HOST" '.dashboard.host = $h' "$PROFILE_FILE")"
   echo "  Generated dashboard host ${DASHBOARD_HOST} (saved to ${PROFILE_FILE})"
 fi
 # The zone's Universal SSL certificate covers one level of subdomain only; a
@@ -1047,8 +1065,8 @@ if cf dns records list --zone "$ZONE" --type MX --name "$RECEIVE_DOMAIN" | jq -e
   echo "  Email Routing enabled on ${RECEIVE_DOMAIN}"
 elif [ -z "$SUBDOMAIN" ]; then
   die "Email Routing is not enabled on ${ZONE}. Enabling it replaces the zone's MX records.
-Either enable it in the dashboard (${ZONE} → Email → Email Routing), or set dmarc.subdomain
-in ${PROFILE_FILE} to receive reports on a subdomain instead."
+Either enable it in the dashboard (${ZONE} → Email → Email Routing), or receive on a
+subdomain instead (choose it with: bash deploy.sh${PROFILE_ARG} --setup)."
 else
   # Enabling a subdomain also touches the zone root: Cloudflare adds a DKIM key
   # (cf2024-1._domainkey) and, only when the root has no SPF record, an SPF record
@@ -1063,7 +1081,7 @@ outgoing mail would start failing SPF. Publish an SPF record for ${ZONE} first, 
   [ "$ROOT_SPF" = 0 ] && echo "  Note: ${ZONE} has no SPF record; Cloudflare will add one authorizing only its own servers."
   SUB_MX=$(cf dns records list --zone "$ZONE" --type MX --name "$RECEIVE_DOMAIN" | jq -r '[.[].content] | join(", ")')
   [ -z "$SUB_MX" ] || die "${RECEIVE_DOMAIN} already receives mail through ${SUB_MX}. Enabling Email Routing on it would
-take that over. Pick another dmarc.subdomain in ${PROFILE_FILE}."
+take that over. Pick another subdomain with: bash deploy.sh${PROFILE_ARG} --setup"
   echo "  Enabling Email Routing on ${RECEIVE_DOMAIN}..."
   cf email-routing enable --zone "$ZONE" --body "$(jq -cn --arg n "$RECEIVE_DOMAIN" '{name: $n}')" >/dev/null \
     || die "Could not enable Email Routing on ${RECEIVE_DOMAIN}. Add it in the dashboard:
@@ -1161,7 +1179,7 @@ if [ -z "$HOST_REC" ]; then
   echo "  Created proxied DNS record for ${DASHBOARD_HOST}"
 elif ! echo "$HOST_REC" | jq -e --arg c "$MANAGED_TAG" '.comment == $c' >/dev/null; then
   die "${DASHBOARD_HOST} already has a DNS record not created by this script.
-Set a different dashboard.host in ${PROFILE_FILE}, or leave it empty to generate one."
+Pick a different dashboard hostname with: bash deploy.sh${PROFILE_ARG} --setup"
 elif ! echo "$HOST_REC" | jq -e '.type == "A" and .content == "192.0.2.0" and .proxied' >/dev/null; then
   cf dns records update "$(echo "$HOST_REC" | jq -r .id)" --zone "$ZONE" --body "$HOST_BODY" >/dev/null
   echo "  Updated DNS record for ${DASHBOARD_HOST}"

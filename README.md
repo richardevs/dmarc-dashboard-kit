@@ -44,7 +44,7 @@ pnpm install
 pnpm run deploy
 ```
 
-On first run, deploy walks you through creating `profiles/default.json`: it logs in, lists your accounts and zones to pick from, suggests a receiving subdomain when the zone already has a mail provider, and pre-fills the Access email from your login. Run `bash deploy.sh [--profile <name>] --setup` to edit a profile the same way later. [`profiles/example.json`](profiles/example.json) shows a complete profile. The fields:
+On first run, deploy walks you through creating `profiles/default.json`: it logs in, lists your accounts and zones to pick from, suggests a receiving subdomain when the zone already has a mail provider, and pre-fills the Access email from your login. **`--setup` is the only way to change a profile:** run `bash deploy.sh [--profile <name>] --setup` again and press Enter to keep each current value. Profiles carry a checksum, and deploy refuses one that was edited by hand until it is saved through `--setup` again. [`profiles/example.json`](profiles/example.json) shows a complete profile for reference. The fields:
 
 | Field | Meaning |
 |-------|---------|
@@ -191,7 +191,7 @@ The dashboard dev server (Vite) runs separately during development. In productio
 ├── migrations/
 │   ├── 0001_init.sql       # D1 schema (reports + record_rows tables)
 │   └── 0002_record_rows_unique.sql  # unique index on record_rows
-├── profiles/example.json   # Deployment profile template (real profiles are gitignored)
+├── profiles/example.json   # Example profile for reference (real profiles are created by --setup and gitignored)
 ├── cloudflare.config.ts    # Worker config (reads the selected profile)
 ├── wrangler.config.ts      # Build settings (dashboard assets directory)
 └── deploy.sh               # One-command deploy

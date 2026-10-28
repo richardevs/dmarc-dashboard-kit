@@ -1,18 +1,28 @@
 {
+  "_note": "Example only. Create and change profiles with: bash deploy.sh --setup (deploy refuses hand-edited profiles).",
   "cfLogin": "company",
   "accountId": "0123456789abcdef0123456789abcdef",
   "zone": "example.com",
   "dmarc": {
     "localPart": "rua",
     "subdomain": "dmarc",
-    "authorizedDomains": ["example.org", "example.net"]
+    "authorizedDomains": [
+      "example.org",
+      "example.net"
+    ]
   },
   "dashboard": {
     "host": "dmarc-x7k2q.example.com"
   },
   "access": {
-    "emails": ["admin@example.com"],
-    "emailDomains": ["example.com"],
-    "ips": ["203.0.113.0/24"]
+    "emails": [
+      "admin@example.com"
+    ],
+    "emailDomains": [
+      "example.com"
+    ],
+    "ips": [
+      "203.0.113.0/24"
+    ]
   }
 }
