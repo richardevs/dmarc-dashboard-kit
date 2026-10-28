@@ -162,9 +162,9 @@ cf() {
   fi
 }
 
-# csv_to_json "a, b,,c" → ["a","b","c"]
+# csv_to_json "a, b,,c d" → ["a","b","c","d"] (commas and/or spaces separate items)
 csv_to_json() {
-  jq -cn --arg s "$1" '$s | split(",") | map(gsub("^\\s+|\\s+$"; "")) | map(select(length > 0))'
+  jq -cn --arg s "$1" '[$s | splits("[,\\s]+")] | map(select(length > 0))'
 }
 
 # --- Import mode: convert a legacy .env into a profile ---
@@ -423,7 +423,7 @@ setup_profile() {
   echo ""
   header "5. Other domains reporting here"
   echo "Domains outside ${ZONE_} whose rua= points at ${LOCAL}@${RECV} must be authorized."
-  echo "List them comma-separated; with none listed, reports for any domain are kept."
+  echo "Separate them with commas or spaces; with none listed, reports for any domain are kept."
   ask AUTH "Authorized domains (e.g. example.org, example.net)" "$(oldl .dmarc.authorizedDomains)" "any domain"
 
   echo ""
@@ -435,7 +435,7 @@ setup_profile() {
   header "7. Who may open the dashboard (Cloudflare Access)"
   echo "Emails and email domains are OR'd; IP ranges, when set, are required in addition."
   EMAILS=$(oldl .access.emails)
-  ask EMAILS "Emails (comma-separated)" "${EMAILS:-$(echo "$WHO" | jq -r '.email // empty')}"
+  ask EMAILS "Emails (e.g. you@company.com)" "${EMAILS:-$(echo "$WHO" | jq -r '.email // empty')}"
   ask DOMAINS "Email domains (e.g. company.com)" "$(oldl .access.emailDomains)" "no email domains"
   ask IPS "IP ranges (e.g. 203.0.113.0/24)" "$(oldl .access.ips)" "no IP ranges"
   [ -n "$EMAILS$DOMAINS$IPS" ] || die "Set at least one email, email domain, or IP range."
