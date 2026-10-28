@@ -1,9 +1,13 @@
 node_modules/
 .wrangler/
+.cloudflare/
 dist/
 .dev.vars
 .env
+.env.*
 wrangler.toml
+profiles/*.json
+!profiles/example.json
 dashboard/node_modules/
 dashboard/dist/
 scripts/
