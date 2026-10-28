@@ -1117,9 +1117,28 @@ else
   echo "  Updated reusable Access policy: ${POLICY_ID}"
 fi
 
-APP_BODY=$(jq -cn --arg n "$ACCESS_APP_NAME" --arg h "$DASHBOARD_HOST" --arg p "$POLICY_ID" '{
+# When dashboard.host changed, retire the previous host before Access moves off it:
+# a leftover route (wrangler keeps old routes when it cannot replace them all) must
+# never serve the dashboard without Access. Our own record is removed so the old
+# host stops resolving; a record we did not create keeps Access on the old host.
+KEEP_HOSTS="[]"
+PREV_HOST=$([ -n "$APP_ID" ] && cf zero-trust access applications get "$APP_ID" | jq -r '.domain // empty' || true)
+if [ -n "$PREV_HOST" ] && [ "$PREV_HOST" != "$DASHBOARD_HOST" ] && [[ "$PREV_HOST" != *.workers.dev ]]; then
+  PREV_REC=$(cf dns records list --zone "$ZONE" --name "$PREV_HOST" | jq -c 'first(.[]) // empty')
+  if [ -z "$PREV_REC" ]; then
+    :
+  elif echo "$PREV_REC" | jq -e --arg c "$MANAGED_TAG" '.comment == $c' >/dev/null; then
+    cf dns records delete "$(echo "$PREV_REC" | jq -r .id)" --zone "$ZONE" --force >/dev/null
+    echo "  Removed DNS record for the previous dashboard host ${PREV_HOST}"
+  else
+    KEEP_HOSTS=$(jq -cn --arg h "$PREV_HOST" '[$h]')
+    warn "${PREV_HOST} still resolves (record not created by this script), so Access keeps protecting it. Remove that record, then deploy again."
+  fi
+fi
+
+APP_BODY=$(jq -cn --arg n "$ACCESS_APP_NAME" --arg h "$DASHBOARD_HOST" --arg p "$POLICY_ID" --argjson keep "$KEEP_HOSTS" '{
   name: $n, type: "self_hosted", domain: $h, session_duration: "24h",
-  destinations: [{type: "public", uri: $h}],
+  destinations: ([$h] + $keep | map({type: "public", uri: .})),
   policies: [{id: $p, precedence: 1}]
 }')
 if [ -z "$APP_ID" ]; then

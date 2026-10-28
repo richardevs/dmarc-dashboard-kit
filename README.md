@@ -83,7 +83,7 @@ Just run `pnpm run deploy`: an existing `.env` is converted into `profiles/defau
 | 6 | Email routing rule → worker |
 | 7 | `_report._dmarc` TXT records (tagged `managed-by:dmarc-dashboard-kit`) |
 
-The dashboard runs on a Worker route behind a proxied DNS record, so the zone's Universal SSL wildcard serves it. A Workers custom domain would get its own certificate, which publishes the hostname in public Certificate Transparency logs.
+The dashboard runs on a Worker route behind a proxied DNS record, so the zone's Universal SSL wildcard serves it. A Workers custom domain would get its own certificate, which publishes the hostname in public Certificate Transparency logs. Changing `dashboard.host` later is safe: deploy removes the previous host's DNS record before Access moves to the new host, so the old name never serves the dashboard without Access.
 
 ### Checking a deployment
 
