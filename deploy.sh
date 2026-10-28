@@ -584,11 +584,17 @@ dmarc_status() {
     TXT=$(curl -fsS -m 10 -H 'accept: application/dns-json' "https://cloudflare-dns.com/dns-query?name=_dmarc.${D}&type=TXT" 2>/dev/null \
       | jq -r '[.Answer[]? | select(.type == 16) | .data | gsub("\" \""; "") | ltrimstr("\"") | rtrimstr("\"")]
                | map(select(test("^v=DMARC1"; "i"))) | first // empty' 2>/dev/null || true)
-    if [ -z "$TXT" ]; then v_warn "${D}: no DMARC record (_dmarc.${D})"; continue; fi
+    if [ -z "$TXT" ]; then
+      if [ "$D" = "$ZONE" ]; then echo "  ${C_DIM}· ${D}: no DMARC record (not monitored here)${C_RESET}"
+      else v_warn "${D}: no DMARC record (_dmarc.${D})"; fi
+      continue
+    fi
     P=$(echo "$TXT" | grep -oiE '(^|;)[[:space:]]*p=[a-z]+' | head -1 | sed -E 's/.*p=//I' | tr 'A-Z' 'a-z')
     RUA=$(echo "$TXT" | grep -oiE 'rua=[^;]*' | head -1)
     if ! echo "$RUA" | tr 'A-Z' 'a-z' | grep -qF "mailto:$(echo "$ADDRESS" | tr 'A-Z' 'a-z')"; then
-      v_warn "${D}: p=${P:-?}, but rua= does not include ${ADDRESS}, so its reports do not arrive here"
+      # The zone may just host this kit (not a monitored domain); listed domains are meant to report here.
+      if [ "$D" = "$ZONE" ]; then echo "  ${C_DIM}· ${D}: not monitored here (its rua= points elsewhere)${C_RESET}"
+      else v_warn "${D}: p=${P:-?}, but rua= does not include ${ADDRESS}, so its reports do not arrive here"; fi
     elif [ "$P" = none ] || [ -z "$P" ]; then
       v_warn "${D}: p=${P:-missing} only monitors; move to quarantine, then reject, once senders pass DKIM/SPF"
     else
