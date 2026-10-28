@@ -45,7 +45,7 @@ pnpm --filter dashboard run check   # svelte-check + tsc
 - `src/types.ts` — Env, DmarcRecordRow, DMARC enums
 - `migrations/0001_init.sql` — D1 schema (reports + record_rows tables)
 - `migrations/0002_record_rows_unique.sql` — unique index on record_rows(report_id, source_ip, header_from)
-- `deploy.sh` — one-command deploy via `cf`: login, Access, D1, migrations, dashboard build, worker deploy, email routing, DNS
+- `deploy.sh` — deploy and manage via `cf`. Deploy: login, Access, D1, migrations, dashboard build (+ DB-IP download), worker deploy, email routing, DNS. Actions: `--setup` (the only way to write a profile), `--list`, `--verify`, `--cleanup`, `--migrate-from`, `--login`, `--import-env`
 - `profiles/<name>.json` — per-deployment settings, written only by `deploy.sh --setup` (and checksummed: deploy refuses hand-edited profiles); gitignored except `example.json`; selected as `--mode <name>`
 - `cloudflare.config.ts` — Worker config; reads the profile, D1 id comes from `DMARC_D1_ID` (set by deploy.sh)
 - `wrangler.config.ts` — build settings (assets directory)
@@ -101,3 +101,5 @@ When auditing this codebase, check the following:
 - No TODO/FIXME comments left in production code
 - Profile values must never appear in client-side bundle — verify Vite's `VITE_` prefix convention is respected
 - `deploy.sh`: every step must be idempotent — re-running should not create duplicate DNS records, D1 databases, or Access policies; DNS records it creates carry the `managed-by:dmarc-dashboard-kit` comment
+- `deploy.sh` must run on macOS's bash 3.2: no `${var,,}`, `mapfile`, or associative arrays; no apostrophe inside `${x:-…}` within double quotes; no jq programs with quotes/parentheses nested inside `"$(…)"` (assign to a variable first)
+- `deploy.sh`: every Cloudflare call goes through the `cf()` wrapper (quiet output, errors shown, read-only calls retried on 5xx); deletes pass `--force` (cf otherwise prompts and silently aborts without a terminal); confirmations use `confirm` (exact Y/N), optional follow-ups use `offer`
