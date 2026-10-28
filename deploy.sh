@@ -73,8 +73,10 @@ ${C_BOLD}Actions${C_RESET} (one at a time; none = deploy):
   --list                   Show the profile's settings, managed resources, and login scopes.
   --verify                 Check the live Cloudflare setup against the profile,
                            including leftovers from older versions.
-  --cleanup                List the resources this script created on the profile's
-                           account and delete the ones you tick.
+  --cleanup                List leftovers (resources the script created that the profile
+                           no longer uses, e.g. on an old zone) and delete the ones you tick.
+  --destroy                Remove the whole deployment of the profile (worker, Access,
+                           D1 database with its reports, routing rules, DNS records).
   --migrate-from=<source>  Copy stored reports from another profile's D1 database into
                            this profile's. Safe to re-run.
   --login                  Log in to Cloudflare with only the permissions this script
@@ -127,6 +129,7 @@ while [ $# -gt 0 ]; do
     --profile) set_profile "${1:-}"; [ $# -gt 0 ] && shift ;;
     --profile=*) set_profile "${arg#--profile=}" ;;
     --cleanup) set_mode "$arg" cleanup ;;
+    --destroy) set_mode "$arg" destroy ;;
     --import-env) set_mode "$arg" import-env ;;
     --login) set_mode "$arg" login ;;
     --setup) set_mode "$arg" setup ;;
@@ -135,7 +138,7 @@ while [ $# -gt 0 ]; do
     --migrate-from=?*) set_mode "--migrate-from" migrate; MIGRATE_FROM="${arg#--migrate-from=}" ;;
     -h|--help) SHOW_HINT="false"; usage; exit 0 ;;
     -*) invalid "$arg" ;;
-    cleanup|import-env|login|setup|list|verify|help|migrate-from*)
+    cleanup|destroy|import-env|login|setup|list|verify|help|migrate-from*)
       invalid "$arg (did you mean --${arg}?)" ;;
     *) invalid "$arg (did you mean --profile ${arg}?)" ;;
   esac
@@ -875,43 +878,53 @@ fi
 # Lists everything any version of this script created on the profile's account —
 # including routing rules and _report._dmarc records left on zones it no longer
 # uses — and deletes only what is ticked.
-ITEM_KIND=(); ITEM_ID=(); ITEM_ZONE=(); ITEM_LABEL=(); ITEM_ON=()
-add_item() { ITEM_KIND+=("$1"); ITEM_ID+=("$2"); ITEM_ZONE+=("$3"); ITEM_LABEL+=("$4"); ITEM_ON+=(0); }
+ITEM_KIND=(); ITEM_ID=(); ITEM_ZONE=(); ITEM_LABEL=(); ITEM_ON=(); ITEM_USE=()
+# add_item <kind> <id> <zone> <label> <in use: 1|0> — in use = part of the profile's current setup.
+add_item() { ITEM_KIND+=("$1"); ITEM_ID+=("$2"); ITEM_ZONE+=("$3"); ITEM_LABEL+=("$4"); ITEM_ON+=(0); ITEM_USE+=("${5:-0}"); }
 
 gather_resources() {
   if cf workers get "$WORKER_NAME" >/dev/null 2>&1; then
-    add_item worker "$WORKER_NAME" "" "Worker ${WORKER_NAME}"
+    add_item worker "$WORKER_NAME" "" "Worker ${WORKER_NAME}" 1
   fi
 
   local APP_ID POLICY_ID GROUP_ID
   APP_ID=$(cf zero-trust access applications list | jq -r --arg n "$ACCESS_APP_NAME" 'first(.[] | select(.name == $n) | .id) // empty')
-  [ -n "$APP_ID" ] && add_item access-app "$APP_ID" "" "Access app \"${ACCESS_APP_NAME}\" (and its app-scoped policies)"
+  [ -n "$APP_ID" ] && add_item access-app "$APP_ID" "" "Access app \"${ACCESS_APP_NAME}\" (and its app-scoped policies)" 1
   POLICY_ID=$(cf zero-trust access policies list | jq -r --arg n "$ACCESS_POLICY_NAME" 'first(.[] | select(.name == $n) | .id) // empty')
-  [ -n "$POLICY_ID" ] && add_item access-policy "$POLICY_ID" "" "Access policy \"${ACCESS_POLICY_NAME}\""
+  [ -n "$POLICY_ID" ] && add_item access-policy "$POLICY_ID" "" "Access policy \"${ACCESS_POLICY_NAME}\"" 1
   GROUP_ID=$(cf zero-trust access rule-groups list | jq -r --arg n "$ACCESS_GROUP_NAME" 'first(.[] | select(.name == $n) | .id) // empty')
-  [ -n "$GROUP_ID" ] && add_item access-group "$GROUP_ID" "" "Access group \"${ACCESS_GROUP_NAME}\""
+  [ -n "$GROUP_ID" ] && add_item access-group "$GROUP_ID" "" "Access group \"${ACCESS_GROUP_NAME}\"" 1
 
   local DB_ID
   DB_ID=$(cf d1 list | jq -r --arg n "$DB_NAME" 'first(.[] | select(.name == $n) | .uuid) // empty')
-  [ -n "$DB_ID" ] && add_item d1 "$DB_ID" "" "D1 database ${DB_NAME} — stored reports"
+  [ -n "$DB_ID" ] && add_item d1 "$DB_ID" "" "D1 database ${DB_NAME} — stored reports" 1
 
-  local ZONES
+  # What the profile currently uses on its own zone; everything else found is a leftover.
+  local ZONES WANTED_DNS CUR USE
+  WANTED_DNS=$( { report_record_names "$RECEIVE_DOMAIN_P"; [ -n "$DASHBOARD_HOST" ] && echo "$DASHBOARD_HOST"; } | jq -Rn '[inputs]')
   ZONES=$(cf zones list | jq -r '.[] | [.id, .name] | @tsv')
   while IFS=$'\t' read -r ZID ZNAME; do
     [ -z "$ZID" ] && continue
+    CUR=0; { [ "$ZNAME" = "$ZONE" ] || [ "$ZID" = "$ZONE" ]; } && CUR=1
     cf email-routing rules list-account --zone "$ZID" 2>/dev/null | jq -r --arg w "$WORKER_NAME" '
       .[] | select(any(.actions[]?; .type == "worker" and ((.value // []) | index($w))))
       | [.id, ((.matchers[]? | select(.field == "to") | .value) // .name // "(unnamed rule)")] | @tsv' |
-    while IFS=$'\t' read -r ID TO; do echo "rule	$ID	$ZID	Email routing rule ${TO} → ${WORKER_NAME}"; done
+    while IFS=$'\t' read -r ID TO; do
+      USE=0; [ "$CUR" = 1 ] && [ "$TO" = "$DMARC_ADDRESS_P" ] && USE=1
+      echo "rule	$ID	$ZID	$USE	Email routing rule ${TO} → ${WORKER_NAME}"
+    done
     # Records tagged by this script, plus untagged "v=DMARC1;" records from
-    # versions that predate tagging.
+    # versions that predate tagging (always leftovers).
     cf dns records list --zone "$ZID" --comment "$MANAGED_TAG" 2>/dev/null | jq -r '.[] | [.id, .type, .name] | @tsv' |
-    while IFS=$'\t' read -r ID TYPE NAME; do echo "dns	$ID	$ZID	DNS ${TYPE} ${NAME}"; done
+    while IFS=$'\t' read -r ID TYPE NAME; do
+      USE=0; [ "$CUR" = 1 ] && echo "$WANTED_DNS" | jq -e --arg n "$NAME" 'index($n)' >/dev/null && USE=1
+      echo "dns	$ID	$ZID	$USE	DNS ${TYPE} ${NAME}"
+    done
     cf dns records list --zone "$ZID" --type TXT --name-contains "_report._dmarc" --comment-absent true 2>/dev/null \
       | jq -r '.[] | select(.content == "\"v=DMARC1;\"") | [.id, .name] | @tsv' |
-    while IFS=$'\t' read -r ID NAME; do echo "dns	$ID	$ZID	DNS TXT ${NAME} (untagged, from an older version)"; done
+    while IFS=$'\t' read -r ID NAME; do echo "dns	$ID	$ZID	0	DNS TXT ${NAME} (untagged, from an older version)"; done
   done <<< "$ZONES" > "$TMP_ITEMS"
-  while IFS=$'\t' read -r KIND ID ZID LABEL; do add_item "$KIND" "$ID" "$ZID" "$LABEL"; done < "$TMP_ITEMS"
+  while IFS=$'\t' read -r KIND ID ZID USE LABEL; do add_item "$KIND" "$ID" "$ZID" "$LABEL" "$USE"; done < "$TMP_ITEMS"
 
   # Disabling Email Routing needs Zone Settings Write, which the login does not
   # request, so a receiving subdomain is left as a manual step.
@@ -922,13 +935,17 @@ gather_resources() {
   fi
 }
 
-# Toggle items by number until Enter on an empty line.
+# Toggle leftover items by number until Enter on an empty line.
 pick_items() {
-  local N=${#ITEM_KIND[@]} INPUT TOKEN I FROM TO
+  local N=${#ITEM_KIND[@]} INPUT TOKEN I K FROM TO ORDER=()
+  for ((I = 0; I < N; I++)); do [ "${ITEM_USE[$I]}" = 0 ] && ORDER+=("$I"); done
+  local M=${#ORDER[@]}
+  toggle() { local J="${ORDER[$(($1 - 1))]}"; ITEM_ON[$J]=$((1 - ITEM_ON[J])); }
   while :; do
     echo ""
-    for ((I = 0; I < N; I++)); do
-      printf "  %2d [%s] %s\n" $((I + 1)) "$([ "${ITEM_ON[$I]}" = 1 ] && echo x || echo ' ')" "${ITEM_LABEL[$I]}"
+    for ((K = 1; K <= M; K++)); do
+      I="${ORDER[$((K - 1))]}"
+      printf "  %2d [%s] %s\n" "$K" "$([ "${ITEM_ON[$I]}" = 1 ] && echo x || echo ' ')" "${ITEM_LABEL[$I]}"
     done
     echo ""
     printf "Toggle by number (e.g. \"1 3\" or \"2-4\"), a = all, n = none, Enter = done: "
@@ -936,15 +953,13 @@ pick_items() {
     [ -z "$INPUT" ] && return
     for TOKEN in ${INPUT//,/ }; do
       case "$TOKEN" in
-        a) for ((I = 0; I < N; I++)); do ITEM_ON[$I]=1; done ;;
+        a) for ((K = 1; K <= M; K++)); do I="${ORDER[$((K - 1))]}"; ITEM_ON[$I]=1; done ;;
         n) for ((I = 0; I < N; I++)); do ITEM_ON[$I]=0; done ;;
         *-*) FROM=${TOKEN%-*}; TO=${TOKEN#*-}
              if [[ "$FROM$TO" =~ ^[0-9]+$ ]]; then
-               for ((I = FROM; I <= TO && I <= N; I++)); do [ "$I" -ge 1 ] && ITEM_ON[$((I - 1))]=$((1 - ITEM_ON[I - 1])); done
+               for ((K = FROM; K <= TO && K <= M; K++)); do [ "$K" -ge 1 ] && toggle "$K"; done
              fi ;;
-        *) if [[ "$TOKEN" =~ ^[0-9]+$ ]] && [ "$TOKEN" -ge 1 ] && [ "$TOKEN" -le "$N" ]; then
-             ITEM_ON[$((TOKEN - 1))]=$((1 - ITEM_ON[TOKEN - 1]))
-           fi ;;
+        *) if [[ "$TOKEN" =~ ^[0-9]+$ ]] && [ "$TOKEN" -ge 1 ] && [ "$TOKEN" -le "$M" ]; then toggle "$TOKEN"; fi ;;
       esac
     done
   done
@@ -955,11 +970,6 @@ selected() {  # selected <kind> — succeeds if any item of that kind is ticked
   for ((I = 0; I < ${#ITEM_KIND[@]}; I++)); do
     [ "${ITEM_KIND[$I]}" = "$1" ] && [ "${ITEM_ON[$I]}" = 1 ] && return 0
   done
-  return 1
-}
-present() {  # present <kind> — succeeds if an item of that kind exists
-  local K
-  for K in "${ITEM_KIND[@]}"; do [ "$K" = "$1" ] && return 0; done
   return 1
 }
 
@@ -977,49 +987,55 @@ delete_item() {
   esac >/dev/null
 }
 
+# --cleanup removes leftovers only (resources the profile no longer uses);
+# --destroy removes the whole deployment of the profile, leftovers included.
 cleanup() {
-  echo "=== DMARC Dashboard Kit Cleanup (profile: ${PROFILE}) ==="
+  local I KIND LEFT=0
+  if [ "$MODE" = destroy ]; then header "=== Destroy the deployment of profile ${PROFILE} ==="
+  else header "=== Clean up leftovers of profile ${PROFILE} ==="; fi
   echo ""
   echo "Looking for resources created by this script..."
   TMP_ITEMS=$(mktemp)
   gather_resources
   rm -f "$TMP_ITEMS"
+  for ((I = 0; I < ${#ITEM_KIND[@]}; I++)); do [ "${ITEM_USE[$I]}" = 0 ] && LEFT=$((LEFT + 1)); done
 
-  if [ ${#ITEM_KIND[@]} -eq 0 ]; then
-    echo "Nothing found — no resources created by this script remain."
-    [ -n "$MANUAL_ROUTING" ] && echo "Email Routing on ${MANUAL_ROUTING} is still on: remove it in the dashboard (${ZONE} → Email → Email Routing → Settings → Subdomains)."
-    return
-  fi
-
-  pick_items
-  selected worker || selected access-app || selected access-policy || selected access-group || selected d1 \
-    || selected rule || selected dns || { echo "Nothing selected."; return; }
-
-  # Without Access the worker would serve the dashboard and API publicly.
-  if { selected access-app || selected access-policy; } && present worker && ! selected worker; then
-    die "Deleting Access while keeping the worker would make the dashboard public. Tick the worker too, or keep Access."
-  fi
-
-  if selected d1; then
-    echo ""
-    echo "${C_YELLOW}${C_BOLD}The selected D1 database(s) hold the stored DMARC reports.${C_RESET}"
-    confirm "Have the reports been copied elsewhere with --migrate-from, or are they no longer needed?" \
-      || { echo "Aborted. Copy them first: bash deploy.sh --profile <target> --migrate-from=${PROFILE}"; exit 0; }
+  if [ "$MODE" = cleanup ]; then
+    if [ "$LEFT" = 0 ]; then
+      echo "No leftovers — everything found is in use by profile ${PROFILE}."
+      echo "${C_DIM}To remove the whole deployment, run: bash deploy.sh${PROFILE_ARG} --destroy${C_RESET}"
+      return
+    fi
+    header "Leftovers (not used by profile ${PROFILE})"
+    pick_items
+    selected rule || selected dns || { echo "Nothing selected."; return; }
+  else
+    if [ ${#ITEM_KIND[@]} -eq 0 ]; then
+      echo "Nothing found — no resources created by this script remain."
+      [ -n "$MANUAL_ROUTING" ] && echo "Email Routing on ${MANUAL_ROUTING} is still on: remove it in the dashboard (${ZONE} → Email → Email Routing → Settings → Subdomains)."
+      return
+    fi
+    for ((I = 0; I < ${#ITEM_KIND[@]}; I++)); do ITEM_ON[$I]=1; done
+    if selected d1; then
+      echo ""
+      echo "${C_YELLOW}${C_BOLD}The D1 database holds the stored DMARC reports.${C_RESET}"
+      confirm "Have the reports been copied elsewhere with --migrate-from, or are they no longer needed?" \
+        || { echo "Aborted. Copy them first: bash deploy.sh --profile <target> --migrate-from=${PROFILE}"; exit 0; }
+    fi
   fi
 
   echo ""
   echo "Will delete:"
-  local I
   for ((I = 0; I < ${#ITEM_KIND[@]}; I++)); do
     [ "${ITEM_ON[$I]}" = 1 ] && echo "  • ${ITEM_LABEL[$I]}"
   done
   echo ""
+  [ "$MODE" = destroy ] && echo "${C_RED}${C_BOLD}This removes the whole deployment of profile ${PROFILE}: reports stop arriving and the dashboard goes away.${C_RESET}"
   confirm "Delete these resources?" || { echo "Aborted."; exit 0; }
   echo ""
 
   # Ingestion first, then the worker before Access so the dashboard is never
   # reachable without it, then data last.
-  local KIND
   for KIND in rule worker dns access-app access-policy access-group d1; do
     for ((I = 0; I < ${#ITEM_KIND[@]}; I++)); do
       [ "${ITEM_KIND[$I]}" = "$KIND" ] && [ "${ITEM_ON[$I]}" = 1 ] || continue
@@ -1028,20 +1044,18 @@ cleanup() {
   done
 
   echo ""
-  echo "=== Cleanup complete ==="
-  if [ -n "$MANUAL_ROUTING" ]; then
+  if [ "$MODE" = destroy ]; then echo "=== Deployment removed ==="; else echo "=== Cleanup complete ==="; fi
+  if [ "$MODE" = destroy ] && [ -n "$MANUAL_ROUTING" ]; then
     echo ""
     echo "To stop receiving on ${MANUAL_ROUTING}, remove it in the dashboard:"
     echo "  ${ZONE} → Email → Email Routing → Settings → Subdomains"
   fi
-  if selected rule || selected dns; then
-    echo ""
-    echo "Confirm no monitored domain still points rua= at a removed address:"
-    echo "  dig +short TXT _dmarc.<monitored-domain>"
-  fi
+  echo ""
+  echo "Make sure no monitored domain still points rua= at a removed address:"
+  echo "  dig +short TXT _dmarc.<monitored-domain>"
 }
 
-if [ "$MODE" = "cleanup" ]; then
+if [ "$MODE" = "cleanup" ] || [ "$MODE" = "destroy" ]; then
   cleanup
   exit 0
 fi

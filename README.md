@@ -92,13 +92,18 @@ bash deploy.sh [--profile <name>] --verify   # compare the live setup with the p
 
 `--verify` checks every resource the script manages, confirms the dashboard answers only through Access and is served by the zone's wildcard certificate, and reports leftovers from older versions (old `.env`/`wrangler.toml`, routing rules or DNS records on zones the profile no longer uses). It exits non-zero when something is wrong.
 
-### Cleanup
+### Cleanup and removal
 
 ```bash
-bash deploy.sh [--profile <name>] --cleanup
+bash deploy.sh [--profile <name>] --cleanup   # leftovers only
+bash deploy.sh [--profile <name>] --destroy   # the whole deployment
 ```
 
-Lists every resource this script created on the profile's account — including routing rules and `_report._dmarc` records left on zones the profile no longer uses — and deletes only the ones you tick. Deleting a D1 database first asks whether its reports were copied with `--migrate-from` or are no longer needed. Confirmations take exactly `Y` or `N` and ask again on anything else.
+`--cleanup` lists only **leftovers**: resources this script created that the profile no longer uses, such as the routing rule and `_report._dmarc` records on a zone you moved away from, or records of domains you removed from the list. Tick the ones to delete. The live deployment never appears in this list.
+
+`--destroy` removes the **whole deployment** of the profile: worker, Access, the D1 database with its reports, routing rules and DNS records (leftovers included). It first asks whether the reports were copied with `--migrate-from` or are no longer needed.
+
+Confirmations take exactly `Y` or `N` and ask again on anything else.
 
 ### Moving reports between deployments
 
@@ -153,7 +158,7 @@ To stop receiving on the subdomain, remove it in the dashboard (zone → Email �
 3. Run `bash deploy.sh`. The old dashboard host is retired automatically.
 4. Point each monitored domain's `rua=` at the new address.
 
-Keep the old zone's routing rule for **1–2 weeks** so in-flight reports still arrive — `bash deploy.sh --verify` lists it under leftovers meanwhile — then run `bash deploy.sh --cleanup` and tick the old zone's routing rule and DNS records.
+Keep the old zone's routing rule for **1–2 weeks** so in-flight reports still arrive — `bash deploy.sh --verify` lists it under leftovers meanwhile — then run `bash deploy.sh --cleanup`: it lists the old zone's routing rule and DNS records as leftovers.
 
 **On a different Cloudflare account** (for example, moving from a personal to a company account), create a new profile for that account with `bash deploy.sh --setup`, deploy it, and copy the stored reports across with `bash deploy.sh --profile <new> --migrate-from=<old>` (see [Moving reports between deployments](#moving-reports-between-deployments)). Two profiles on the same account would share one worker and database, so use this only across accounts.
 

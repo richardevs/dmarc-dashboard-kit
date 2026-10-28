@@ -45,7 +45,7 @@ pnpm --filter dashboard run check   # svelte-check + tsc
 - `src/types.ts` — Env, DmarcRecordRow, DMARC enums
 - `migrations/0001_init.sql` — D1 schema (reports + record_rows tables)
 - `migrations/0002_record_rows_unique.sql` — unique index on record_rows(report_id, source_ip, header_from)
-- `deploy.sh` — deploy and manage via `cf`. Deploy: login, Access, D1, migrations, dashboard build (+ DB-IP download), worker deploy, email routing, DNS. Actions: `--setup` (the only way to write a profile), `--list`, `--verify`, `--cleanup`, `--migrate-from`, `--login`, `--import-env`
+- `deploy.sh` — deploy and manage via `cf`. Deploy: login, Access, D1, migrations, dashboard build (+ DB-IP download), worker deploy, email routing, DNS. Actions: `--setup` (the only way to write a profile), `--list`, `--verify`, `--cleanup` (leftovers only), `--destroy` (whole deployment), `--migrate-from`, `--login`, `--import-env`
 - `profiles/<name>.json` — per-deployment settings, written only by `deploy.sh --setup` (and checksummed: deploy refuses hand-edited profiles); gitignored except `example.json`; selected as `--mode <name>`
 - `cloudflare.config.ts` — Worker config; reads the profile, D1 id comes from `DMARC_D1_ID` (set by deploy.sh)
 - `wrangler.config.ts` — build settings (assets directory)
