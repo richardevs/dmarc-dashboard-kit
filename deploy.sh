@@ -150,23 +150,27 @@ command -v jq >/dev/null || die "jq is required (brew install jq / apt install j
 # The profile's cfLogin selects a named cf login; empty uses cf's default login.
 CF_PROFILE=""
 cf() {
-  local ARGS=("$@") ERR RC
+  local ARGS=("$@") OUT ERR RC TRY READ_ONLY="false" A
   [ -n "$CF_PROFILE" ] && ARGS+=(--profile "$CF_PROFILE")
   # Commands that show progress or ask questions keep their terminal output.
   case "$1 ${2:-} ${3:-}" in
     "deploy "*|"d1 migrations apply"|"auth login"*|"auth create"*) "$CF_BIN" "${ARGS[@]}"; return ;;
   esac
-  # Everything else runs quietly: cf draws a banner and spinner on a terminal,
-  # which would bury this script's output. Errors are still shown.
-  ERR=$(mktemp)
-  if "$CF_BIN" "${ARGS[@]}" --quiet 2>"$ERR"; then
-    rm -f "$ERR"
-  else
+  # Reads are retried on Cloudflare server errors (5xx). Writes are not: a 5xx does
+  # not prove a write failed, and repeating a create could duplicate a record.
+  for A in "$@"; do case "$A" in list|list-account|get|whoami) READ_ONLY="true" ;; esac; done
+  # Everything runs quietly: cf draws a banner and spinner on a terminal, which would
+  # bury this script's output. Errors are still shown.
+  OUT=$(mktemp); ERR=$(mktemp)
+  for TRY in 1 2 3; do
+    "$CF_BIN" "${ARGS[@]}" --quiet >"$OUT" 2>"$ERR" && { cat "$OUT"; rm -f "$OUT" "$ERR"; return 0; }
     RC=$?
-    sed $'s/\x1b\\[[0-9;?]*[A-Za-z]//g' "$ERR" | grep -vE '^\s*.?\s*$|Loading' >&2 || true
-    rm -f "$ERR"
-    return $RC
-  fi
+    [ "$READ_ONLY" = true ] && [ "$TRY" -lt 3 ] && grep -qE '(^|[^0-9])5[0-9]{2}([^0-9]|$)' "$ERR" || break
+    sleep $((TRY * 2))
+  done
+  sed $'s/\x1b\\[[0-9;?]*[A-Za-z]//g' "$ERR" | grep -vE '^\s*.?\s*$|Loading' >&2 || true
+  rm -f "$OUT" "$ERR"
+  return $RC
 }
 
 # Profiles are written only by this script (--setup, .env import, generated host).
