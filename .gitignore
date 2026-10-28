@@ -1,15 +1,24 @@
+# Dependencies and build output (root and dashboard/)
 node_modules/
-.wrangler/
-.cloudflare/
-.cache/
 dist/
-.dev.vars
-.env
-.env.*
-wrangler.toml
+
+# cf / wrangler local state, generated types, and the DB-IP download cache
+.cloudflare/
+.wrangler/
+.cache/
+
+# Deployment profiles hold your account, zone, and addresses; only the example is shared.
+# To share a team profile in an internal copy, add e.g. !profiles/company.json.
 profiles/*.json
 !profiles/example.json
-dashboard/node_modules/
-dashboard/dist/
+
+# Secrets and leftovers from 1.x (.env.legacy is created when .env is converted)
+.env
+.env.*
+.dev.vars
+wrangler.toml
+
+# Editor and OS files
 .vscode/
 .claude/
+.DS_Store
