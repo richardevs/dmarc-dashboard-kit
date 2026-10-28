@@ -1,6 +1,8 @@
 export interface Env {
   DB: D1Database;
   ASSETS: Fetcher;
+  // Accepted policy domains (each also covers its subdomains); empty = accept any.
+  REPORT_DOMAINS: string[];
 }
 
 export type DmarcRecordRow = {

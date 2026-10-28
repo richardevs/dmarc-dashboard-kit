@@ -457,6 +457,8 @@ show_plan() {
   kv "Zone" "$ZONE" "$C_BOLD"
   kv "Receiving address" "$DMARC_ADDRESS_P" "$C_CYAN"
   kv "Report authorization" "$(report_record_names "$RECEIVE_DOMAIN_P" | paste -sd ' ' -)"
+  if [ "$AUTH_DOMAINS" = "[]" ]; then kv "Reports kept for" "(any domain)"
+  else kv "Reports kept for" "$(echo "$AUTH_DOMAINS" | jq -r --arg z "$ZONE" '[$z] + . | join(", ")') (and subdomains)"; fi
   if [ -n "$DASHBOARD_HOST" ]; then kv "Dashboard" "https://${DASHBOARD_HOST}" "$C_CYAN"; else kv "Dashboard" "(generated on first deploy)"; fi
   kv "Access emails" "$(csv_or_dash "$ACCESS_EMAILS")"
   kv "Access email domains" "$(csv_or_dash "$ACCESS_EMAIL_DOMAINS")"
@@ -1089,6 +1091,10 @@ fi
 # Read by cloudflare.config.ts. Looked up fresh every run, so switching accounts
 # or profiles can never deploy against a stale database id.
 export DMARC_D1_ID="$DB_ID"
+# Domains whose reports the worker keeps: none listed = any domain; otherwise the
+# zone (and its subdomains) plus dmarc.authorizedDomains.
+export DMARC_REPORT_DOMAINS
+DMARC_REPORT_DOMAINS=$(echo "$AUTH_DOMAINS" | jq -c --arg z "$ZONE" 'if length == 0 then [] else [$z] + . end')
 
 # --- Step 3: Run migrations ---
 echo ""

@@ -130,6 +130,8 @@ The deploy script handles step 2 automatically:
 
 Records the script created are tagged with a DNS comment, so removing a domain from the list also removes its record on the next deploy.
 
+The receiving address is public (it is in every monitored domain's `rua=`), so anyone can send it reports. With `dmarc.authorizedDomains` set, the worker keeps only reports whose policy domain is your zone, one of the listed domains, or a subdomain of them, and drops the rest (logged as "domain not allowed"). With the list empty, reports for any domain are kept.
+
 > **Warning:** `p=none` only monitors — it does **not** block spoofed emails. Once you've reviewed your DMARC reports and confirmed all legitimate senders pass DKIM/SPF, move to `p=quarantine` and then `p=reject` as soon as possible.
 
 ## Sender IP details

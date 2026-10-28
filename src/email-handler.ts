@@ -71,6 +71,13 @@ export async function handleEmail(
   const reportId = rows[0]?.reportMetadataReportId ?? "unknown";
   const domain = rows[0]?.policyPublishedDomain ?? "unknown";
 
+  // The receiving address is public (rua= in DNS), so anyone can send reports to it.
+  // Keep only reports about our own domains; dropping (not throwing) avoids retries.
+  if (!isAllowedDomain(domain, env.REPORT_DOMAINS)) {
+    console.warn("DMARC report dropped: domain not allowed", { from: message.from, domain, reportId });
+    return;
+  }
+
   // A D1 insert failure is transient — throw so Email Routing retries delivery.
   try {
     await insertReport(env.DB, rows);
@@ -83,6 +90,16 @@ export async function handleEmail(
     });
     throw insertErr;
   }
+}
+
+// An empty list accepts every domain; otherwise each entry also covers its subdomains.
+function isAllowedDomain(domain: string, allowed: string[] | undefined): boolean {
+  if (!allowed || allowed.length === 0) return true;
+  const d = domain.toLowerCase().replace(/\.$/, "");
+  return allowed.some((a) => {
+    const base = a.toLowerCase().replace(/\.$/, "");
+    return d === base || d.endsWith(`.${base}`);
+  });
 }
 
 const REPORT_EXTENSIONS = [".xml", ".gz", ".zip"];

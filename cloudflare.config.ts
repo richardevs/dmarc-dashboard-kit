@@ -37,6 +37,8 @@ export default defineConfig(({ mode }) => {
 			env: {
 				// deploy.sh looks the database up by name on every run and passes its id here.
 				DB: bindings.d1({ name: "dmarc-reports", id: process.env.DMARC_D1_ID ?? LOCAL_D1_ID }),
+				// Domains whose reports are accepted (set by deploy.sh; empty = any domain).
+				REPORT_DOMAINS: bindings.json(JSON.parse(process.env.DMARC_REPORT_DOMAINS || "[]") as string[]),
 				// Static assets, also read by src/geo.ts for the IP geolocation databases.
 				ASSETS: bindings.assets(),
 			},
