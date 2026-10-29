@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [2.1.2] - 2026-10-29
+
+### Fixed
+- `deploy.sh` no longer stops without a message in these cases: `--verify` with a login that has more than 9 extra scopes; `--cleanup` and `--destroy` with a profile that has no dashboard host yet (for example a profile converted from v1); `--list`, `--verify` and deploy when a monitored domain has a DMARC record without `rua=`. Answering N to "Deploy profile … now?" after `--setup` no longer ends with exit status 1.
+- When `deploy.sh` stops unexpectedly, it now names the function and line instead of exiting silently.
+
 ## [2.1.1] - 2026-10-29
 
 ### Fixed
@@ -79,7 +85,8 @@ Initial release: self-hosted DMARC report analyzer on Cloudflare (Email Routing 
 - Timezone-aware date grouping and report ID precision.
 - Idempotent `_report._dmarc` and Access policy updates.
 
-[Unreleased]: https://github.com/richardevs/dmarc-dashboard-kit/compare/v2.1.1...HEAD
+[Unreleased]: https://github.com/richardevs/dmarc-dashboard-kit/compare/v2.1.2...HEAD
+[2.1.2]: https://github.com/richardevs/dmarc-dashboard-kit/compare/v2.1.1...v2.1.2
 [2.1.1]: https://github.com/richardevs/dmarc-dashboard-kit/compare/v2.1.0...v2.1.1
 [2.1.0]: https://github.com/richardevs/dmarc-dashboard-kit/compare/v2.0.0...v2.1.0
 [2.0.0]: https://github.com/richardevs/dmarc-dashboard-kit/compare/v1.0.1...v2.0.0

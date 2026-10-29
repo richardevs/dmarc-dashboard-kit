@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
 # --profiles-dir is resolved against the folder the script was started from.
 CALLER_DIR="$PWD"
 cd "$(dirname "$0")"
@@ -111,6 +111,10 @@ invalid() {
 # Every run except --help ends with a pointer to the help.
 SHOW_HINT="true"
 trap '[ "$SHOW_HINT" = true ] && printf "\n%s\n" "${C_DIM}More usage: bash deploy.sh --help${C_RESET}"' EXIT
+# set -e exits without a message; name where instead (bash 3.2 gives the start line of the
+# enclosing function or block). Only the main shell reports: bash 3.2 runs $( ) without set -e,
+# so a failure there that does not stop the script is harmless.
+trap 'S=$?; [ "$BASH_SUBSHELL" -eq 0 ] && echo "${C_RED}ERROR:${C_RESET} deploy.sh stopped in ${FUNCNAME[0]:-the main script} near line ${LINENO} (exit status ${S}). This is a bug; please report it." >&2' ERR
 
 # --- Parse arguments ---
 MODE="deploy"
@@ -562,7 +566,7 @@ setup_profile() {
   save_profile "$PROFILE_FILE" "$JSON"
   echo "Saved. Deploy with: ${C_BOLD}bash deploy.sh${PROFILE_ARG}${C_RESET}"
   echo ""
-  offer "${C_BOLD}Deploy profile ${PROFILE} now?${C_RESET}" && next_run --profile "$PROFILE"
+  if offer "${C_BOLD}Deploy profile ${PROFILE} now?${C_RESET}"; then next_run --profile "$PROFILE"; fi
 }
 
 # --- Load profile ---
@@ -648,8 +652,8 @@ dmarc_status() {
       else v_warn "${D}: no DMARC record (_dmarc.${D})"; fi
       continue
     fi
-    P=$(echo "$TXT" | grep -oiE '(^|;)[[:space:]]*p=[a-z]+' | head -1 | sed -E 's/.*p=//I' | tr 'A-Z' 'a-z')
-    RUA=$(echo "$TXT" | grep -oiE 'rua=[^;]*' | head -1)
+    P=$(echo "$TXT" | grep -oiE '(^|;)[[:space:]]*p=[a-z]+' | head -1 | sed -E 's/.*p=//I' | tr 'A-Z' 'a-z' || true)
+    RUA=$(echo "$TXT" | grep -oiE 'rua=[^;]*' | head -1 || true)
     if ! echo "$RUA" | tr 'A-Z' 'a-z' | grep -qF "mailto:$(echo "$ADDRESS" | tr 'A-Z' 'a-z')"; then
       # The zone may just host this kit (not a monitored domain); listed domains are meant to report here.
       if [ "$D" = "$ZONE" ]; then echo "  ${C_DIM}· ${D}: not monitored here (its rua= points elsewhere)${C_RESET}"
@@ -758,7 +762,7 @@ scope_report() {
     v_warn "${NE} non-required scope(s) also granted — narrow the login with: bash deploy.sh${PROFILE_ARG} --login"
     # A plain `cf auth login` grants hundreds; only name a handful.
     # shellcheck disable=SC2046
-    [ "$NE" -le 9 ] && print_columns $(echo "$EXTRA")
+    if [ "$NE" -le 9 ]; then print_columns $(echo "$EXTRA"); fi
   fi
 }
 
@@ -953,7 +957,7 @@ gather_resources() {
 
   # What the profile currently uses on its own zone; everything else found is a leftover.
   local ZONES WANTED_DNS CUR USE
-  WANTED_DNS=$( { report_record_names "$RECEIVE_DOMAIN_P"; [ -n "$DASHBOARD_HOST" ] && echo "$DASHBOARD_HOST"; } | jq -Rn '[inputs]')
+  WANTED_DNS=$( { report_record_names "$RECEIVE_DOMAIN_P"; if [ -n "$DASHBOARD_HOST" ]; then echo "$DASHBOARD_HOST"; fi; } | jq -Rn '[inputs]')
   ZONES=$(cf zones list | jq -r '.[] | [.id, .name] | @tsv')
   while IFS=$'\t' read -r ZID ZNAME; do
     [ -z "$ZID" ] && continue
