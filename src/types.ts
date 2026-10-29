@@ -3,6 +3,10 @@ export interface Env {
   ASSETS: Fetcher;
   // Accepted policy domains (each also covers its subdomains); empty = accept any.
   REPORT_DOMAINS: string[];
+  // Cloudflare Access team domain (<team>.cloudflareaccess.com) and the app's AUD tag,
+  // set by deploy.sh; empty in local dev.
+  ACCESS_TEAM_DOMAIN: string;
+  ACCESS_AUD: string;
 }
 
 export type DmarcRecordRow = {

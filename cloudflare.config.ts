@@ -41,6 +41,10 @@ export default defineConfig(({ mode }) => {
 				DB: bindings.d1({ name: "dmarc-reports", id: process.env.DMARC_D1_ID ?? LOCAL_D1_ID }),
 				// Domains whose reports are accepted (set by deploy.sh; empty = any domain).
 				REPORT_DOMAINS: bindings.json(JSON.parse(process.env.DMARC_REPORT_DOMAINS || "[]") as string[]),
+				// The Access app the API checks request JWTs against (set by deploy.sh; empty in local dev,
+				// where src/access.ts allows only localhost).
+				ACCESS_TEAM_DOMAIN: bindings.text(process.env.DMARC_ACCESS_TEAM_DOMAIN ?? ""),
+				ACCESS_AUD: bindings.text(process.env.DMARC_ACCESS_AUD ?? ""),
 				// Static assets, also read by src/geo.ts for the IP geolocation databases.
 				ASSETS: bindings.assets(),
 			},

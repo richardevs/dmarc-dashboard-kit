@@ -4,6 +4,14 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-10-29
+
+### Added
+- The API checks the Cloudflare Access token (`Cf-Access-Jwt-Assertion`) on every request. It accepts only tokens from your Zero Trust team for the dashboard's Access app, and returns 403 for all other requests. Before, the API relied only on Access in front of the dashboard host. Now the report data stays protected if Access stops covering that host, for example when the Access app is deleted or a Bypass policy is added.
+
+### Changed
+- `deploy.sh --login` also requests the `access-org.read` scope, so deploy can read your Zero Trust team domain. Existing logins do not have this scope: run `bash deploy.sh --login` once before you deploy again.
+
 ## [2.1.3] - 2026-10-29
 
 ### Fixed
@@ -90,7 +98,8 @@ Initial release: self-hosted DMARC report analyzer on Cloudflare (Email Routing 
 - Timezone-aware date grouping and report ID precision.
 - Idempotent `_report._dmarc` and Access policy updates.
 
-[Unreleased]: https://github.com/richardevs/dmarc-dashboard-kit/compare/v2.1.3...HEAD
+[Unreleased]: https://github.com/richardevs/dmarc-dashboard-kit/compare/v2.2.0...HEAD
+[2.2.0]: https://github.com/richardevs/dmarc-dashboard-kit/compare/v2.1.3...v2.2.0
 [2.1.3]: https://github.com/richardevs/dmarc-dashboard-kit/compare/v2.1.2...v2.1.3
 [2.1.2]: https://github.com/richardevs/dmarc-dashboard-kit/compare/v2.1.1...v2.1.2
 [2.1.1]: https://github.com/richardevs/dmarc-dashboard-kit/compare/v2.1.0...v2.1.1

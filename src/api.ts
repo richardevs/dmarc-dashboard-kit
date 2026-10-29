@@ -11,6 +11,7 @@ import {
   getReportDetail,
 } from "./db";
 import { lookupIps } from "./geo";
+import { isAccessAuthorized } from "./access";
 
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
@@ -29,6 +30,8 @@ export async function handleFetch(
 
   // Only handle /api/* routes; static assets are served by wrangler
   if (!path.startsWith("/api/")) return new Response(null, { status: 404 });
+
+  if (!(await isAccessAuthorized(request, env))) return json({ error: "Forbidden" }, 403);
 
   try {
     return await route(path, url.searchParams, env, request);

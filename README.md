@@ -12,7 +12,7 @@ Email Sender → Cloudflare Email Routing → Worker email() → D1 (SQLite)
                                           Cloudflare Access (login wall)
 ```
 
-A single Cloudflare Worker handles both DMARC report ingestion (via email) and serves the dashboard + API. Cloudflare Access protects the entire application.
+A single Cloudflare Worker handles both DMARC report ingestion (via email) and serves the dashboard + API. Cloudflare Access protects the entire application. The API also checks the Access token (`Cf-Access-Jwt-Assertion`) on every request, so it stays closed even if Access stops covering the host.
 
 ## Prerequisites
 

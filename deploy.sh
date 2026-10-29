@@ -21,7 +21,7 @@ LOGIN_SCOPES=(
   zone:read dns_records:edit
   workers_scripts:write workers_routes:write d1:write
   email_routing:write email-routing-rule.write
-  access-app.write access-policy.write access-group.write
+  access-app.write access-policy.write access-group.write access-org.read
 )
 
 # --- Colors (disabled when not a TTY or when NO_COLOR is set) ---
@@ -1415,6 +1415,14 @@ else
   cf zero-trust access applications update "$APP_ID" --body "$APP_BODY" >/dev/null
   echo "  Updated Access app for ${DASHBOARD_HOST}: ${APP_ID}"
 fi
+# The worker checks each API request's Access JWT against this app (src/access.ts):
+# issuer = the team domain, audience = the app's AUD tag. Read by cloudflare.config.ts.
+export DMARC_ACCESS_AUD DMARC_ACCESS_TEAM_DOMAIN
+DMARC_ACCESS_AUD=$(cf zero-trust access applications get "$APP_ID" | jq -r '.aud // empty')
+ORG=$(cf zero-trust organization get) || die "Could not read the Zero Trust team domain. The login needs the access-org.read scope.
+Log in again with: bash deploy.sh${PROFILE_ARG} --login"
+DMARC_ACCESS_TEAM_DOMAIN=$(echo "$ORG" | jq -r '.auth_domain // empty')
+[ -n "$DMARC_ACCESS_AUD" ] && [ -n "$DMARC_ACCESS_TEAM_DOMAIN" ] || die "Could not read the Access app's AUD tag or the team domain."
 echo "  Allowed: $(jq -rn --argjson e "$ACCESS_EMAILS" --argjson d "$ACCESS_EMAIL_DOMAINS" --argjson i "$ACCESS_IPS" \
   '[($e|select(length>0)|"emails=\(join(","))"), ($d|select(length>0)|"domains=\(join(","))"), ($i|select(length>0)|"ips=\(join(","))")] | join(" ")')"
 
