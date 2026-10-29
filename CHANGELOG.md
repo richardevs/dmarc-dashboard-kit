@@ -4,6 +4,11 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [2.1.1] - 2026-10-29
+
+### Fixed
+- `deploy.sh --cleanup`, `--destroy`, `--list`, `--verify`, `--login` and `--migrate-from` stop with an error when the profile does not exist. Before, they started profile setup instead of the action you asked for. The error lists the existing profiles. Only a plain deploy and `--setup` start setup for a missing profile.
+
 ## [2.1.0] - 2026-10-29
 
 ### Added
@@ -74,7 +79,8 @@ Initial release: self-hosted DMARC report analyzer on Cloudflare (Email Routing 
 - Timezone-aware date grouping and report ID precision.
 - Idempotent `_report._dmarc` and Access policy updates.
 
-[Unreleased]: https://github.com/richardevs/dmarc-dashboard-kit/compare/v2.1.0...HEAD
+[Unreleased]: https://github.com/richardevs/dmarc-dashboard-kit/compare/v2.1.1...HEAD
+[2.1.1]: https://github.com/richardevs/dmarc-dashboard-kit/compare/v2.1.0...v2.1.1
 [2.1.0]: https://github.com/richardevs/dmarc-dashboard-kit/compare/v2.0.0...v2.1.0
 [2.0.0]: https://github.com/richardevs/dmarc-dashboard-kit/compare/v1.0.1...v2.0.0
 [1.0.1]: https://github.com/richardevs/dmarc-dashboard-kit/compare/v1.0.0...v1.0.1

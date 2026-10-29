@@ -566,6 +566,21 @@ setup_profile() {
 }
 
 # --- Load profile ---
+# Only a deploy starts setup for a missing profile; any other action must not turn into setup.
+if [ "$MODE" != setup ] && [ "$MODE" != deploy ] && [ ! -f "$PROFILE_FILE" ]; then
+  EXISTING=""
+  for F in "$PROFILES_DIR"/*.json; do
+    N=$(basename "$F" .json)
+    [ "$N" = example ] || [ ! -f "$F" ] && continue
+    EXISTING="${EXISTING:+${EXISTING}, }${N}"
+  done
+  DIR_HINT=""
+  [ "$PROFILES_DIR_SET" = false ] && DIR_HINT=" If your profiles are kept in another folder, pass --profiles-dir <dir>."
+  if [ -n "$EXISTING" ]; then
+    die "Profile \"${PROFILE}\" not found in ${PROFILES_DIR}. Existing profiles: ${EXISTING}. Pass --profile <name>.${DIR_HINT}"
+  fi
+  die "Profile \"${PROFILE}\" not found in ${PROFILES_DIR}, which has no profiles yet. Create one with: bash deploy.sh${PROFILE_ARG} --setup${DIR_HINT:+ —}${DIR_HINT}"
+fi
 if [ "$MODE" = "setup" ] || [ ! -f "$PROFILE_FILE" ]; then
   # A named profile that is missing from the kit may live in another repository.
   if [ "$MODE" != setup ] && [ "$PROFILE_SET" = true ] && [ "$PROFILES_DIR_SET" = false ]; then
