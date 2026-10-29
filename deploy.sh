@@ -316,6 +316,17 @@ login() {
   fi
 }
 logged_in() { cf auth whoami 2>/dev/null | jq -e '.authenticated and .tokenValid != false' >/dev/null; }
+# profile_account <profile file> — its accountId, or else the only account its login can see
+# (a profile converted from v1 may have none). Prints nothing when that is ambiguous.
+profile_account() {
+  local ACC IDS
+  ACC=$(jq -r '.accountId // empty' "$1")
+  if [ -z "$ACC" ]; then
+    IDS=$(CF_PROFILE=$(jq -r '.cfLogin // empty' "$1"); cf auth whoami 2>/dev/null | jq -r '.accounts[]?.id' || true)
+    if [ "$(printf '%s\n' "$IDS" | grep -c .)" = 1 ]; then ACC="$IDS"; fi
+  fi
+  echo "$ACC"
+}
 
 # --- Setup mode: build a profile interactively ---
 session_label() {
@@ -788,6 +799,11 @@ if [ "$MODE" = "list" ]; then
 fi
 
 logged_in || login
+# Every lookup below stays in the profile's account, even when the login can see others
+# (another deployment of the kit there uses the same Worker name and DNS tag).
+ACCOUNT_ID=$(profile_account "$PROFILE_FILE")
+[ -n "$ACCOUNT_ID" ] || die "${PROFILE_FILE} names no account, and its login can see several. Choose one with: bash deploy.sh${PROFILE_ARG} --setup"
+export CLOUDFLARE_ACCOUNT_ID="$ACCOUNT_ID"
 
 # --- Verify mode: compare the live setup with the profile ---
 
@@ -912,7 +928,7 @@ verify() {
     if cf dns records list --zone "$ZID" --comment "$MANAGED_TAG" 2>/dev/null | jq -e 'length > 0' >/dev/null; then
       v_warn "${ZNAME} has DNS records created by this script (remove with --cleanup)"; FOUND=true
     fi
-  done <<< "$(cf zones list | jq -r '.[] | [.id, .name] | @tsv')"
+  done <<< "$(cf zones list --account-id "$ACCOUNT_ID" | jq -r '.[] | [.id, .name] | @tsv')"
   if cf dns records list --zone "$Z" --type TXT --name-contains "_report._dmarc" --comment-absent true 2>/dev/null \
       | jq -e 'any(.[]; .content == "\"v=DMARC1;\"")' >/dev/null; then
     v_warn "Untagged _report._dmarc records from an older version on ${Z}"; FOUND=true
@@ -958,7 +974,7 @@ gather_resources() {
   # What the profile currently uses on its own zone; everything else found is a leftover.
   local ZONES WANTED_DNS CUR USE
   WANTED_DNS=$( { report_record_names "$RECEIVE_DOMAIN_P"; if [ -n "$DASHBOARD_HOST" ]; then echo "$DASHBOARD_HOST"; fi; } | jq -Rn '[inputs]')
-  ZONES=$(cf zones list | jq -r '.[] | [.id, .name] | @tsv')
+  ZONES=$(cf zones list --account-id "$ACCOUNT_ID" | jq -r '.[] | [.id, .name] | @tsv')
   while IFS=$'\t' read -r ZID ZNAME; do
     [ -z "$ZID" ] && continue
     CUR=0; { [ "$ZNAME" = "$ZONE" ] || [ "$ZID" = "$ZONE" ]; } && CUR=1
@@ -1163,7 +1179,7 @@ cf_as() {
   local FILE="$1"; shift
   (
     CF_PROFILE=$(jq -r '.cfLogin // empty' "$FILE")
-    ACC=$(jq -r '.accountId // empty' "$FILE")
+    ACC=$(profile_account "$FILE")
     if [ -n "$ACC" ]; then export CLOUDFLARE_ACCOUNT_ID="$ACC"; else unset CLOUDFLARE_ACCOUNT_ID; fi
     cf "$@"
   )
@@ -1175,6 +1191,8 @@ migrate_from() {
   [ "$SRC_FILE" = "$PROFILE_FILE" ] && die "Source and target are the same profile."
   cf_as "$SRC_FILE" auth whoami 2>/dev/null | jq -e '.authenticated and .tokenValid != false' >/dev/null \
     || die "Not logged in for profile ${MIGRATE_FROM}. Run: bash deploy.sh --profile ${MIGRATE_FROM} --login"
+  [ -n "$(profile_account "$SRC_FILE")" ] \
+    || die "Profile ${MIGRATE_FROM} names no account, and its login can see several. Choose one with: bash deploy.sh --profile ${MIGRATE_FROM} --setup"
 
   echo "=== Migrate reports: ${MIGRATE_FROM} → ${PROFILE} ==="
   echo ""

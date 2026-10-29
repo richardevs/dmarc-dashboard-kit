@@ -4,6 +4,11 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [2.1.3] - 2026-10-29
+
+### Fixed
+- `deploy.sh --cleanup`, `--destroy` and `--verify` look only in the profile's own Cloudflare account. Before, when the login could see several accounts, they also listed another deployment's routing rules and DNS records as leftovers, because every deployment uses the same Worker name and DNS tag. `--destroy` selected them for deletion. A profile without an `accountId` (for example one converted from v1) now uses the login's only account, and stops if the login can see several.
+
 ## [2.1.2] - 2026-10-29
 
 ### Fixed
@@ -85,7 +90,8 @@ Initial release: self-hosted DMARC report analyzer on Cloudflare (Email Routing 
 - Timezone-aware date grouping and report ID precision.
 - Idempotent `_report._dmarc` and Access policy updates.
 
-[Unreleased]: https://github.com/richardevs/dmarc-dashboard-kit/compare/v2.1.2...HEAD
+[Unreleased]: https://github.com/richardevs/dmarc-dashboard-kit/compare/v2.1.3...HEAD
+[2.1.3]: https://github.com/richardevs/dmarc-dashboard-kit/compare/v2.1.2...v2.1.3
 [2.1.2]: https://github.com/richardevs/dmarc-dashboard-kit/compare/v2.1.1...v2.1.2
 [2.1.1]: https://github.com/richardevs/dmarc-dashboard-kit/compare/v2.1.0...v2.1.1
 [2.1.0]: https://github.com/richardevs/dmarc-dashboard-kit/compare/v2.0.0...v2.1.0
