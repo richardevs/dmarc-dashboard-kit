@@ -8,7 +8,8 @@ dist/
 .cache/
 
 # Deployment profiles hold your account, zone, and addresses; only the example is shared.
-# To share a team profile in an internal copy, add e.g. !profiles/company.json.
+# To share a team profile, keep it in your own repository (deploy.sh --profiles-dir),
+# or add e.g. !profiles/company.json in an internal copy.
 profiles/*.json
 !profiles/example.json
 

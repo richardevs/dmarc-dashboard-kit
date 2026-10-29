@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
+# --profiles-dir is resolved against the folder the script was started from.
+CALLER_DIR="$PWD"
 cd "$(dirname "$0")"
+SELF="$PWD/$(basename "$0")"
 
 WORKER_NAME="dmarc-dashboard-kit"
 DB_NAME="dmarc-reports"
@@ -64,7 +67,7 @@ confirm() {
 
 usage() {
   cat <<USAGE
-${C_BOLD}Usage:${C_RESET} bash deploy.sh [--profile <name>] [action]
+${C_BOLD}Usage:${C_RESET} bash deploy.sh [--profiles-dir <dir>] [--profile <name>] [action]
 
 ${C_BOLD}Actions${C_RESET} (one at a time; none = deploy):
   (none)                   Show the plan for the profile and deploy it after confirmation.
@@ -85,11 +88,14 @@ ${C_BOLD}Actions${C_RESET} (one at a time; none = deploy):
   -h, --help               Show this help.
 
 --profile <name> selects profiles/<name>.json (default: "default").
+--profiles-dir <dir> keeps the profiles in <dir> instead of the kit's profiles/ folder,
+for example in your own repository that includes the kit as a git submodule.
 
 ${C_BOLD}Examples:${C_RESET}
   bash deploy.sh                              deploy profiles/default.json
   bash deploy.sh --profile company --verify    check profiles/company.json against Cloudflare
   bash deploy.sh --profile company --migrate-from=default
+  bash kit/deploy.sh --profiles-dir profiles --profile company   (from your own repository)
 USAGE
 }
 
@@ -110,6 +116,8 @@ trap '[ "$SHOW_HINT" = true ] && printf "\n%s\n" "${C_DIM}More usage: bash deplo
 MODE="deploy"
 PROFILE="default"
 PROFILE_SET="false"
+PROFILES_DIR="profiles"
+PROFILES_DIR_SET="false"
 MIGRATE_FROM=""
 
 set_mode() {
@@ -123,11 +131,21 @@ set_profile() {
   PROFILE="$1"; PROFILE_SET="true"
 }
 
+# The folder must exist; it is stored as an absolute path because the script runs from the kit's folder.
+set_profiles_dir() {
+  [ "$PROFILES_DIR_SET" = true ] && invalid "--profiles-dir given twice"
+  [ -n "$1" ] || invalid "--profiles-dir <missing>"
+  PROFILES_DIR=$(cd "$CALLER_DIR" && cd "$1" 2>/dev/null && pwd) || invalid "--profiles-dir $1 (folder not found)"
+  PROFILES_DIR_SET="true"
+}
+
 while [ $# -gt 0 ]; do
   arg="$1"; shift
   case "$arg" in
     --profile) set_profile "${1:-}"; [ $# -gt 0 ] && shift ;;
     --profile=*) set_profile "${arg#--profile=}" ;;
+    --profiles-dir) set_profiles_dir "${1:-}"; [ $# -gt 0 ] && shift ;;
+    --profiles-dir=*) set_profiles_dir "${arg#--profiles-dir=}" ;;
     --cleanup) set_mode "$arg" cleanup ;;
     --destroy) set_mode "$arg" destroy ;;
     --import-env) set_mode "$arg" import-env ;;
@@ -144,8 +162,17 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-PROFILE_FILE="profiles/${PROFILE}.json"
-PROFILE_ARG=" --profile $PROFILE"
+[ -z "$MIGRATE_FROM" ] || [[ "$MIGRATE_FROM" =~ ^[A-Za-z0-9_-]+$ ]] \
+  || invalid "--migrate-from=${MIGRATE_FROM} (profile names may contain letters, digits, - and _)"
+
+# PROFILE_ARG repeats the profile options in the commands this script suggests.
+set_profile_file() {
+  PROFILE_FILE="${PROFILES_DIR}/${PROFILE}.json"
+  PROFILE_ARG=" --profile $PROFILE"
+  [ "$PROFILES_DIR_SET" = true ] && PROFILE_ARG=" --profiles-dir $(printf '%q' "$PROFILES_DIR")${PROFILE_ARG}"
+  return 0
+}
+set_profile_file
 
 command -v jq >/dev/null || die "jq is required (brew install jq / apt install jq)."
 [ -x "$CF_BIN" ] || die "cf CLI not found. Run 'pnpm install' first."
@@ -304,7 +331,10 @@ offer() {
 next_run() {
   SHOW_HINT="false"
   echo ""
-  exec bash "$0" "$@"
+  if [ "$PROFILES_DIR_SET" = true ]; then
+    exec bash "$SELF" --profiles-dir "$PROFILES_DIR" "$@"
+  fi
+  exec bash "$SELF" "$@"
 }
 
 # chosen <text> — confirms what a setup step ended up with.
@@ -343,23 +373,22 @@ choose_profile() {
   local F N ROWS="" CHOICE
   [ "$PROFILE_SET" = true ] && return
   header "0. Profile"
-  for F in profiles/*.json; do
+  for F in "$PROFILES_DIR"/*.json; do
     N=$(basename "$F" .json)
     [ "$N" = example ] || [ ! -f "$F" ] && continue
     ROWS+="$(printf '%s\t%-12s %s' "$N" "$N" "${C_DIM}$(jq -r '"\(.zone // "?") → \(.dashboard.host // "" | if . == "" then "host not generated yet" else . end)"' "$F" 2>/dev/null)${C_RESET}")"$'\n'
   done
   ROWS+="$(printf '__new__\t%s' "New profile…")"
-  pick CHOICE "Profile" "$([ -f profiles/default.json ] && echo default || echo __new__)" "$ROWS"
+  pick CHOICE "Profile" "$([ -f "$PROFILES_DIR/default.json" ] && echo default || echo __new__)" "$ROWS"
   if [ "$CHOICE" = "__new__" ]; then
     while :; do
-      ask CHOICE "Name for the new profile (letters, digits, - and _)" "$([ -f profiles/default.json ] || echo default)"
-      [[ "$CHOICE" =~ ^[A-Za-z0-9_-]+$ ]] && [ ! -f "profiles/${CHOICE}.json" ] && break
+      ask CHOICE "Name for the new profile (letters, digits, - and _)" "$([ -f "$PROFILES_DIR/default.json" ] || echo default)"
+      [[ "$CHOICE" =~ ^[A-Za-z0-9_-]+$ ]] && [ ! -f "${PROFILES_DIR}/${CHOICE}.json" ] && break
       echo "  ${C_YELLOW}Use letters, digits, - and _, and a name that does not exist yet.${C_RESET}"
     done
   fi
   PROFILE="$CHOICE"
-  PROFILE_FILE="profiles/${PROFILE}.json"
-  PROFILE_ARG=" --profile $PROFILE"
+  set_profile_file
   echo ""
 }
 
@@ -538,9 +567,17 @@ setup_profile() {
 
 # --- Load profile ---
 if [ "$MODE" = "setup" ] || [ ! -f "$PROFILE_FILE" ]; then
+  # A named profile that is missing from the kit may live in another repository.
+  if [ "$MODE" != setup ] && [ "$PROFILE_SET" = true ] && [ "$PROFILES_DIR_SET" = false ]; then
+    warn "${PROFILE_FILE} does not exist in the kit. If your profiles are kept in another folder (for example your own repository), stop here with Ctrl-C and pass --profiles-dir <dir>."
+    echo ""
+  fi
   setup_profile
   exit 0
 fi
+# cloudflare.config.ts reads the same file when cf deploys.
+export DMARC_PROFILE_FILE="${PROFILE_FILE}"
+case "$DMARC_PROFILE_FILE" in /*) ;; *) DMARC_PROFILE_FILE="$PWD/$DMARC_PROFILE_FILE" ;; esac
 
 jq empty "$PROFILE_FILE" 2>/dev/null || die "$PROFILE_FILE is not valid JSON. Run: bash deploy.sh${PROFILE_ARG} --setup"
 if [ "$(jq -r '._checksum // empty' "$PROFILE_FILE")" != "$(profile_hash "$PROFILE_FILE")" ]; then
@@ -618,7 +655,7 @@ report_record_names() {
 list_profile() {
   local F N INFO
   header "Profiles"
-  for F in profiles/*.json; do
+  for F in "$PROFILES_DIR"/*.json; do
     N=$(basename "$F" .json)
     [ "$N" = example ] && continue
     INFO=$(jq -r '[(.zone // "?"), (.dashboard.host // "" | if . == "" then "host not generated yet" else . end)] | join("  →  ")' "$F")
@@ -1114,7 +1151,7 @@ cf_as() {
 }
 
 migrate_from() {
-  local SRC_FILE="profiles/${MIGRATE_FROM}.json"
+  local SRC_FILE="${PROFILES_DIR}/${MIGRATE_FROM}.json"
   [ -f "$SRC_FILE" ] || die "Source profile ${SRC_FILE} not found."
   [ "$SRC_FILE" = "$PROFILE_FILE" ] && die "Source and target are the same profile."
   cf_as "$SRC_FILE" auth whoami 2>/dev/null | jq -e '.authenticated and .tokenValid != false' >/dev/null \
@@ -1154,7 +1191,7 @@ copy_table() {
   local TABLE="$1" COLS="$2" PAGE=200 LAST_ID=0 READ=0 ADDED=0 ROWS N SELECT_JSON
   SELECT_JSON=$(echo "$COLS" | tr -d ' ' | tr ',' '\n' | awk '{printf "%sjson_extract(value, '"'"'$.%s'"'"')", (NR>1?", ":""), $1}')
   while :; do
-    ROWS=$(cf_as "profiles/${MIGRATE_FROM}.json" d1 query "$SRC_DB" \
+    ROWS=$(cf_as "${PROFILES_DIR}/${MIGRATE_FROM}.json" d1 query "$SRC_DB" \
       --sql "SELECT id, ${COLS} FROM ${TABLE} WHERE id > ? ORDER BY id LIMIT ${PAGE}" --params "$LAST_ID" | jq -c '.[0].results')
     N=$(echo "$ROWS" | jq 'length')
     [ "$N" -eq 0 ] && break

@@ -4,6 +4,15 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-10-29
+
+### Added
+- `deploy.sh --profiles-dir <dir>` keeps profiles outside the kit, for example in your own repository that includes the kit as a git submodule. Every action (`--setup`, `--list`, `--cleanup`, `--migrate-from`, …) and the Worker config use that folder. The README shows a small committed wrapper script, so everyone runs the kit with the same profiles. A profile that is missing from the kit now points to the option.
+
+### Fixed
+- `deploy.sh` offers to continue with the next action (deploy after `--setup`, `--verify` after a deploy) also when it is started from another folder.
+- `--migrate-from=<source>` accepts only profile names (letters, digits, `-` and `_`), like `--profile`.
+
 ## [2.0.0] - 2026-10-29
 
 ### Changed
@@ -65,7 +74,8 @@ Initial release: self-hosted DMARC report analyzer on Cloudflare (Email Routing 
 - Timezone-aware date grouping and report ID precision.
 - Idempotent `_report._dmarc` and Access policy updates.
 
-[Unreleased]: https://github.com/richardevs/dmarc-dashboard-kit/compare/v2.0.0...HEAD
+[Unreleased]: https://github.com/richardevs/dmarc-dashboard-kit/compare/v2.1.0...HEAD
+[2.1.0]: https://github.com/richardevs/dmarc-dashboard-kit/compare/v2.0.0...v2.1.0
 [2.0.0]: https://github.com/richardevs/dmarc-dashboard-kit/compare/v1.0.1...v2.0.0
 [1.0.1]: https://github.com/richardevs/dmarc-dashboard-kit/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/richardevs/dmarc-dashboard-kit/releases/tag/v1.0.0

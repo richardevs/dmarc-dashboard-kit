@@ -6,9 +6,11 @@ import { bindings, defineConfig, triggers } from "cf/config";
 const LOCAL_D1_ID = "00000000-0000-4000-8000-000000000000";
 
 // Each deployment is described by profiles/<name>.json and selected with `--mode <name>`
-// (deploy.sh passes it). Without a profile (local dev) no account or route is set.
+// (deploy.sh passes it). deploy.sh also sets DMARC_PROFILE_FILE to the absolute path, which
+// covers profiles kept outside the kit (--profiles-dir). Without a profile (local dev) no
+// account or route is set.
 function loadProfile(mode: string | undefined) {
-	const file = `profiles/${mode ?? "default"}.json`;
+	const file = process.env.DMARC_PROFILE_FILE || `profiles/${mode ?? "default"}.json`;
 	return existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : {};
 }
 

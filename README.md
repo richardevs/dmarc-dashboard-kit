@@ -62,7 +62,27 @@ Each `profiles/<name>.json` is a separate deployment (for example, personal and 
 
 ### Sharing a profile in a team
 
-Profiles hold no credentials — each person logs in with their own Cloudflare account (`--login`), which needs access to the profile's account. To share a deployment's settings, commit the profile in your internal copy of the repo: add `!profiles/company.json` to `.gitignore` (or `git add -f profiles/company.json`). For automated deploys, `cf` also accepts a `CLOUDFLARE_API_TOKEN` from the environment, kept in your CI's secret store.
+Profiles hold no credentials — each person logs in with their own Cloudflare account (`--login`), which needs access to the profile's account. For automated deploys, `cf` also accepts a `CLOUDFLARE_API_TOKEN` from the environment, kept in your CI's secret store.
+
+To share a deployment's settings, keep the profile in your own repository and include the kit as a git submodule, pinned to a release tag. `--profiles-dir <dir>` makes `deploy.sh` read and write profiles in `<dir>` (relative to where you run it) instead of the kit's `profiles/` folder:
+
+```
+infra/dmarc/
+├── deploy.sh               # wrapper below, committed
+├── dmarc-dashboard-kit/    # git submodule → dmarc-dashboard-kit @ v2.1.0
+└── profiles/company.json   # written by --setup, committed
+```
+
+```bash
+#!/usr/bin/env bash
+# infra/dmarc/deploy.sh — runs the kit with the profiles kept next to this file.
+here="$(cd "$(dirname "$0")" && pwd)"
+exec bash "$here/dmarc-dashboard-kit/deploy.sh" --profiles-dir "$here/profiles" "$@"
+```
+
+Everyone then runs `bash infra/dmarc/deploy.sh --profile company --verify` with the same settings. After cloning, run `git submodule update --init` (or clone with `--recurse-submodules`), then `pnpm install` inside the kit. To upgrade, move the submodule to a newer tag.
+
+Alternatively, commit the profile in your internal copy of the kit: add `!profiles/company.json` to `.gitignore` (or `git add -f profiles/company.json`).
 
 ### Upgrading from `.env`
 
