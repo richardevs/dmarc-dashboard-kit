@@ -71,8 +71,11 @@ ${C_BOLD}Usage:${C_RESET} bash deploy.sh [--profiles-dir <dir>] [--profile <name
 
 ${C_BOLD}Actions${C_RESET} (one at a time; none = deploy):
   (none)                   Show the plan for the profile and deploy it after confirmation.
+                           Without --profile and without profiles/default.json, it asks
+                           which existing profile to deploy (or uses the only one).
   --setup                  Create or edit profiles/<profile>.json step by step
-                           (runs automatically when the profile does not exist).
+                           (runs automatically when no profile exists yet, or when
+                           the profile named with --profile does not exist).
   --list                   Show the profile's settings, managed resources, and login scopes.
   --verify                 Check the live Cloudflare setup against the profile,
                            including leftovers from older versions.
@@ -92,7 +95,7 @@ ${C_BOLD}Actions${C_RESET} (one at a time; none = deploy):
 for example in your own repository that includes the kit as a git submodule.
 
 ${C_BOLD}Examples:${C_RESET}
-  bash deploy.sh                              deploy profiles/default.json
+  bash deploy.sh                              deploy profiles/default.json, or pick a profile
   bash deploy.sh --profile company --verify    check profiles/company.json against Cloudflare
   bash deploy.sh --profile company --migrate-from=default
   bash kit/deploy.sh --profiles-dir profiles --profile company   (from your own repository)
@@ -383,17 +386,25 @@ pick() {
   done
 }
 
-# Without --profile, let the user choose which profile to create or edit.
-choose_profile() {
-  local F N ROWS="" CHOICE
-  [ "$PROFILE_SET" = true ] && return
-  header "0. Profile"
+# profile_rows — one pick row per profile in PROFILES_DIR (name<TAB>name zone → host), without example.
+profile_rows() {
+  local F N LABEL
   for F in "$PROFILES_DIR"/*.json; do
     N=$(basename "$F" .json)
     [ "$N" = example ] || [ ! -f "$F" ] && continue
-    ROWS+="$(printf '%s\t%-12s %s' "$N" "$N" "${C_DIM}$(jq -r '"\(.zone // "?") → \(.dashboard.host // "" | if . == "" then "host not generated yet" else . end)"' "$F" 2>/dev/null)${C_RESET}")"$'\n'
+    LABEL=$(jq -r '"\(.zone // "?") → \(.dashboard.host // "" | if . == "" then "host not generated yet" else . end)"' "$F" 2>/dev/null || true)
+    printf '%s\t%-12s %s\n' "$N" "$N" "${C_DIM}${LABEL}${C_RESET}"
   done
-  ROWS+="$(printf '__new__\t%s' "New profile…")"
+  return 0
+}
+
+# Without --profile, let the user choose which profile to create or edit.
+choose_profile() {
+  local ROWS CHOICE
+  [ "$PROFILE_SET" = true ] && return
+  header "0. Profile"
+  ROWS=$(profile_rows)
+  ROWS+="${ROWS:+$'\n'}$(printf '__new__\t%s' "New profile…")"
   pick CHOICE "Profile" "$([ -f "$PROFILES_DIR/default.json" ] && echo default || echo __new__)" "$ROWS"
   if [ "$CHOICE" = "__new__" ]; then
     while :; do
@@ -581,14 +592,30 @@ setup_profile() {
 }
 
 # --- Load profile ---
+PROFILE_ROWS=""
+if [ "$MODE" != setup ] && [ ! -f "$PROFILE_FILE" ]; then
+  PROFILE_ROWS=$(profile_rows)
+fi
+EXISTING=$(echo "$PROFILE_ROWS" | cut -f1 | paste -sd, - | sed 's/,/, /g')
+# A plain deploy without --profile and without default.json deploys one of the existing profiles;
+# the plan screen and its confirmation still come before any change.
+if [ "$MODE" = deploy ] && [ "$PROFILE_SET" = false ] && [ -n "$PROFILE_ROWS" ]; then
+  { : </dev/tty; } 2>/dev/null \
+    || die "No profile \"${PROFILE}\" in ${PROFILES_DIR}. Existing profiles: ${EXISTING}. Pass --profile <name>."
+  case "$PROFILE_ROWS" in
+    *$'\n'*)
+      header "Deploy which profile?"
+      echo "${C_DIM}To create a new profile, run: bash deploy.sh${PROFILE_ARG% --profile *} --profile <name> --setup${C_RESET}"
+      pick PROFILE "Profile" "" "$PROFILE_ROWS" ;;
+    *)
+      PROFILE=$(echo "$PROFILE_ROWS" | cut -f1)
+      chosen "Using profile ${C_CYAN}${PROFILE}${C_RESET} (the only one in ${PROFILES_DIR})" ;;
+  esac
+  echo ""
+  set_profile_file
+fi
 # Only a deploy starts setup for a missing profile; any other action must not turn into setup.
 if [ "$MODE" != setup ] && [ "$MODE" != deploy ] && [ ! -f "$PROFILE_FILE" ]; then
-  EXISTING=""
-  for F in "$PROFILES_DIR"/*.json; do
-    N=$(basename "$F" .json)
-    [ "$N" = example ] || [ ! -f "$F" ] && continue
-    EXISTING="${EXISTING:+${EXISTING}, }${N}"
-  done
   DIR_HINT=""
   [ "$PROFILES_DIR_SET" = false ] && DIR_HINT=" If your profiles are kept in another folder, pass --profiles-dir <dir>."
   if [ -n "$EXISTING" ]; then

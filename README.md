@@ -41,7 +41,7 @@ pnpm install
 bash deploy.sh
 ```
 
-On first run, deploy walks you through creating `profiles/default.json`: it logs in, lists your accounts and zones to pick from, suggests a receiving subdomain when the zone already has a mail provider, and pre-fills the Access email from your login. **`--setup` is the only way to change a profile:** run `bash deploy.sh [--profile <name>] --setup` again and press Enter to keep each current value. Profiles carry a checksum, and deploy refuses one that was edited by hand until it is saved through `--setup` again. [`profiles/example.json`](profiles/example.json) shows a complete profile for reference. The fields:
+On first run, deploy walks you through creating `profiles/default.json`: it logs in, lists your accounts and zones to pick from, suggests a receiving subdomain when the zone already has a mail provider, and pre-fills the Access email from your login. **`--setup` is the only way to change a profile:** run `bash deploy.sh [--profile <name>] --setup` again and press Enter to keep each current value. Profiles carry a checksum, and deploy refuses one that was edited by hand until it is saved through `--setup` again. Without `--profile`, deploy uses `profiles/default.json`; when that does not exist but other profiles do, it asks which one to deploy (or uses the only one). [`profiles/example.json`](profiles/example.json) shows a complete profile for reference. The fields:
 
 | Field | Meaning |
 |-------|---------|
