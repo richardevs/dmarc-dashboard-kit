@@ -77,7 +77,8 @@ infra/dmarc/
 #!/usr/bin/env bash
 # infra/dmarc/deploy.sh — runs the kit with the profiles kept next to this file.
 here="$(cd "$(dirname "$0")" && pwd)"
-exec bash "$here/dmarc-dashboard-kit/deploy.sh" --profiles-dir "$here/profiles" "$@"
+# DMARC_WRAPPER_CMD makes the kit suggest commands that start with this wrapper.
+DMARC_WRAPPER_CMD="$0" exec bash "$here/dmarc-dashboard-kit/deploy.sh" --profiles-dir "$here/profiles" "$@"
 ```
 
 Everyone then runs `bash infra/dmarc/deploy.sh --profile company --verify` with the same settings. After cloning, run `git submodule update --init` (or clone with `--recurse-submodules`), then `pnpm install` inside the kit. To upgrade, move the submodule to a newer tag.

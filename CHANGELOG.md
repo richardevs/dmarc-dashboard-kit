@@ -4,6 +4,20 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [2.4.0] - 2026-11-02
+
+### Added
+- A wrapper script can set `DMARC_WRAPPER_CMD="$0"`. Then the commands that `deploy.sh` suggests start with the wrapper, for example `./deploy.sh --profile <name> --setup`. Before, they showed the kit's command with `--profiles-dir`, which failed when you ran it through the wrapper. The README wrapper sets the variable.
+
+### Changed
+- `deploy.sh --list`, `--verify`, `--cleanup`, `--destroy`, `--login` and `--migrate-from` without `--profile` ask which profile to use when `profiles/default.json` does not exist, the same as a plain deploy. When only one profile exists, they use it and show its name. `--destroy` always asks.
+- Without a terminal, there is no profile list: the action stops and shows the existing profiles. This is mainly useful for `--list` and `--verify`, which can run without a terminal.
+- The profile list shows the profiles folder.
+
+### Fixed
+- When input ends at the profile list, `deploy.sh` stops with "No profile chosen". Before, the message said that `--setup` needs an interactive terminal.
+- After `--import-env`, the suggested deploy command includes `--profile`. Before, it showed the profile name without `--profile`, which is not a valid option.
+
 ## [2.3.0] - 2026-11-02
 
 ### Changed
@@ -103,7 +117,8 @@ Initial release: self-hosted DMARC report analyzer on Cloudflare (Email Routing 
 - Timezone-aware date grouping and report ID precision.
 - Idempotent `_report._dmarc` and Access policy updates.
 
-[Unreleased]: https://github.com/richardevs/dmarc-dashboard-kit/compare/v2.3.0...HEAD
+[Unreleased]: https://github.com/richardevs/dmarc-dashboard-kit/compare/v2.4.0...HEAD
+[2.4.0]: https://github.com/richardevs/dmarc-dashboard-kit/compare/v2.3.0...v2.4.0
 [2.3.0]: https://github.com/richardevs/dmarc-dashboard-kit/compare/v2.2.0...v2.3.0
 [2.2.0]: https://github.com/richardevs/dmarc-dashboard-kit/compare/v2.1.3...v2.2.0
 [2.1.3]: https://github.com/richardevs/dmarc-dashboard-kit/compare/v2.1.2...v2.1.3

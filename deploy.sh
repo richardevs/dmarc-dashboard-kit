@@ -71,8 +71,6 @@ ${C_BOLD}Usage:${C_RESET} bash deploy.sh [--profiles-dir <dir>] [--profile <name
 
 ${C_BOLD}Actions${C_RESET} (one at a time; none = deploy):
   (none)                   Show the plan for the profile and deploy it after confirmation.
-                           Without --profile and without profiles/default.json, it asks
-                           which existing profile to deploy (or uses the only one).
   --setup                  Create or edit profiles/<profile>.json step by step
                            (runs automatically when no profile exists yet, or when
                            the profile named with --profile does not exist).
@@ -90,9 +88,12 @@ ${C_BOLD}Actions${C_RESET} (one at a time; none = deploy):
   --import-env             Convert a legacy .env into profiles/<profile>.json.
   -h, --help               Show this help.
 
---profile <name> selects profiles/<name>.json (default: "default").
+--profile <name> selects profiles/<name>.json (default: "default"). Without --profile and
+without profiles/default.json, each action asks which existing profile to use (or uses the
+only one; --destroy always asks).
 --profiles-dir <dir> keeps the profiles in <dir> instead of the kit's profiles/ folder,
-for example in your own repository that includes the kit as a git submodule.
+for example in your own repository that includes the kit as a git submodule. A wrapper
+script there can set DMARC_WRAPPER_CMD="\$0", so suggested commands start with the wrapper.
 
 ${C_BOLD}Examples:${C_RESET}
   bash deploy.sh                              deploy profiles/default.json, or pick a profile
@@ -113,7 +114,7 @@ invalid() {
 
 # Every run except --help ends with a pointer to the help.
 SHOW_HINT="true"
-trap '[ "$SHOW_HINT" = true ] && printf "\n%s\n" "${C_DIM}More usage: bash deploy.sh --help${C_RESET}"' EXIT
+trap '[ "$SHOW_HINT" = true ] && printf "\n%s\n" "${C_DIM}More usage: ${RUN_CMD:-bash deploy.sh} --help${C_RESET}"' EXIT
 # set -e exits without a message; name where instead (bash 3.2 gives the start line of the
 # enclosing function or block). Only the main shell reports: bash 3.2 runs $( ) without set -e,
 # so a failure there that does not stop the script is harmless.
@@ -172,11 +173,20 @@ done
 [ -z "$MIGRATE_FROM" ] || [[ "$MIGRATE_FROM" =~ ^[A-Za-z0-9_-]+$ ]] \
   || invalid "--migrate-from=${MIGRATE_FROM} (profile names may contain letters, digits, - and _)"
 
+# RUN_CMD and DIR_ARG start the commands this script suggests. A wrapper that passes --profiles-dir
+# sets DMARC_WRAPPER_CMD="$0", so the suggestions show the wrapper's command instead of the kit's.
+DIR_ARG=""
+if [ -n "${DMARC_WRAPPER_CMD:-}" ]; then
+  RUN_CMD="$DMARC_WRAPPER_CMD"
+  case "$RUN_CMD" in */*) [ -x "$CALLER_DIR/$RUN_CMD" ] || [ -x "$RUN_CMD" ] || RUN_CMD="bash $RUN_CMD" ;; *) RUN_CMD="bash $RUN_CMD" ;; esac
+else
+  RUN_CMD="bash deploy.sh"
+  [ "$PROFILES_DIR_SET" = true ] && DIR_ARG=" --profiles-dir $(printf '%q' "$PROFILES_DIR")"
+fi
 # PROFILE_ARG repeats the profile options in the commands this script suggests.
 set_profile_file() {
   PROFILE_FILE="${PROFILES_DIR}/${PROFILE}.json"
-  PROFILE_ARG=" --profile $PROFILE"
-  [ "$PROFILES_DIR_SET" = true ] && PROFILE_ARG=" --profiles-dir $(printf '%q' "$PROFILES_DIR")${PROFILE_ARG}"
+  PROFILE_ARG="${DIR_ARG} --profile $PROFILE"
   return 0
 }
 set_profile_file
@@ -230,7 +240,7 @@ csv_to_json() {
 # --- Import mode: convert a legacy .env into a profile ---
 import_env() {
   [ -f .env ] || die "No .env file to import."
-  [ -f "$PROFILE_FILE" ] && die "$PROFILE_FILE already exists. Pick another profile name: bash deploy.sh --profile <name> --import-env"
+  [ -f "$PROFILE_FILE" ] && die "$PROFILE_FILE already exists. Pick another profile name: ${RUN_CMD}${DIR_ARG} --profile <name> --import-env"
 
   # Parse KEY=VALUE lines without evaluating them: strip inline comments,
   # surrounding whitespace and quotes. Values may contain spaces.
@@ -289,7 +299,7 @@ import_env() {
     echo "(e.g. for settings you added yourself), then remove it."
   fi
   echo ""
-  echo "Review the profile, then run: ${C_BOLD}bash deploy.sh${C_RESET}$([ "$PROFILE" != "default" ] && echo " $PROFILE")"
+  echo "Review the profile, then run: ${C_BOLD}${RUN_CMD}${PROFILE_ARG}${C_RESET}"
 }
 
 if [ "$MODE" = "import-env" ]; then
@@ -358,13 +368,15 @@ next_run() {
 # chosen <text> — confirms what a setup step ended up with.
 chosen() { echo "  ${C_GREEN}✓${C_RESET} $*"; }
 
+# What ask says when input ends before an answer.
+NO_INPUT_MSG="--setup needs an interactive terminal."
 # ask <var> <prompt> [default] [what Enter means when the default is empty] — "-" clears the default.
 # The brackets show what Enter submits: a value, or "Enter = …" when that is nothing.
 ask() {
   local REPLY_ SHOWN="${3:-}"
   [ -z "$SHOWN" ] && [ -n "${4:-}" ] && SHOWN="Enter = $4"
   printf "%s%s: " "$2" "${SHOWN:+ ${C_DIM}[${SHOWN}]${C_RESET}}"
-  { read -r REPLY_ </dev/tty; } 2>/dev/null || die "--setup needs an interactive terminal."
+  { read -r REPLY_ </dev/tty; } 2>/dev/null || { echo ""; die "$NO_INPUT_MSG"; }
   REPLY_="${REPLY_:-${3:-}}"
   [ "$REPLY_" = "-" ] && REPLY_=""
   printf -v "$1" '%s' "$REPLY_"
@@ -468,7 +480,7 @@ setup_profile() {
   echo ""
   header "2. Account"
   ROWS=$(echo "$WHO" | jq -r '.accounts[]? | [.id, .name] | @tsv')
-  [ -n "$ROWS" ] || die "This login has no accounts. Run: bash deploy.sh${PROFILE_ARG} --login"
+  [ -n "$ROWS" ] || die "This login has no accounts. Run: ${RUN_CMD}${PROFILE_ARG} --login"
   if [ "$(echo "$ROWS" | wc -l | tr -d ' ')" = 1 ]; then
     ACC=$(echo "$ROWS" | cut -f1)
   else
@@ -586,7 +598,7 @@ setup_profile() {
   echo ""
   confirm "Write ${PROFILE_FILE}?" || { echo "Aborted."; exit 0; }
   save_profile "$PROFILE_FILE" "$JSON"
-  echo "Saved. Deploy with: ${C_BOLD}bash deploy.sh${PROFILE_ARG}${C_RESET}"
+  echo "Saved. Deploy with: ${C_BOLD}${RUN_CMD}${PROFILE_ARG}${C_RESET}"
   echo ""
   if offer "${C_BOLD}Deploy profile ${PROFILE} now?${C_RESET}"; then next_run --profile "$PROFILE"; fi
 }
@@ -597,31 +609,40 @@ if [ "$MODE" != setup ] && [ ! -f "$PROFILE_FILE" ]; then
   PROFILE_ROWS=$(profile_rows)
 fi
 EXISTING=$(echo "$PROFILE_ROWS" | cut -f1 | paste -sd, - | sed 's/,/, /g')
-# A plain deploy without --profile and without default.json deploys one of the existing profiles;
-# the plan screen and its confirmation still come before any change.
-if [ "$MODE" = deploy ] && [ "$PROFILE_SET" = false ] && [ -n "$PROFILE_ROWS" ]; then
-  { : </dev/tty; } 2>/dev/null \
-    || die "No profile \"${PROFILE}\" in ${PROFILES_DIR}. Existing profiles: ${EXISTING}. Pass --profile <name>."
-  case "$PROFILE_ROWS" in
-    *$'\n'*)
-      header "Deploy which profile?"
-      echo "${C_DIM}To create a new profile, run: bash deploy.sh${PROFILE_ARG% --profile *} --profile <name> --setup${C_RESET}"
-      pick PROFILE "Profile" "" "$PROFILE_ROWS" ;;
-    *)
-      PROFILE=$(echo "$PROFILE_ROWS" | cut -f1)
-      chosen "Using profile ${C_CYAN}${PROFILE}${C_RESET} (the only one in ${PROFILES_DIR})" ;;
+# Without --profile and without default.json, every action asks which existing profile to use
+# (or uses the only one; --destroy always asks). Each action still shows what it will do before it changes anything.
+if [ "$PROFILE_SET" = false ] && [ -n "$PROFILE_ROWS" ] && { : </dev/tty; } 2>/dev/null; then
+  case "$MODE" in
+    list) QUESTION="Show which profile?" ;;
+    verify) QUESTION="Verify which profile?" ;;
+    cleanup) QUESTION="Clean up which profile?" ;;
+    destroy) QUESTION="Destroy which profile?" ;;
+    login) QUESTION="Log in for which profile?" ;;
+    migrate) QUESTION="Copy the reports of ${MIGRATE_FROM} into which profile?" ;;
+    *) QUESTION="Deploy which profile?" ;;
   esac
+  if [ "$MODE" != destroy ] && [ "$PROFILE_ROWS" = "${PROFILE_ROWS%%$'\n'*}" ]; then
+    PROFILE=$(echo "$PROFILE_ROWS" | cut -f1)
+    chosen "Using profile ${C_CYAN}${PROFILE}${C_RESET} (the only one in ${PROFILES_DIR})"
+  else
+    header "$QUESTION"
+    echo "${C_DIM}Profiles in ${PROFILES_DIR}. To create one, run: ${RUN_CMD}${DIR_ARG} --profile <name> --setup${C_RESET}"
+    NO_INPUT_MSG="No profile chosen. Pass --profile <name>."
+    pick PROFILE "Profile" "" "$PROFILE_ROWS"
+  fi
   echo ""
   set_profile_file
 fi
-# Only a deploy starts setup for a missing profile; any other action must not turn into setup.
-if [ "$MODE" != setup ] && [ "$MODE" != deploy ] && [ ! -f "$PROFILE_FILE" ]; then
+# Only a deploy starts setup for a missing profile, and only when it is named or no profile exists;
+# any other action must not turn into setup.
+if [ "$MODE" != setup ] && [ ! -f "$PROFILE_FILE" ] \
+  && { [ "$MODE" != deploy ] || { [ "$PROFILE_SET" = false ] && [ -n "$EXISTING" ]; }; }; then
   DIR_HINT=""
   [ "$PROFILES_DIR_SET" = false ] && DIR_HINT=" If your profiles are kept in another folder, pass --profiles-dir <dir>."
   if [ -n "$EXISTING" ]; then
     die "Profile \"${PROFILE}\" not found in ${PROFILES_DIR}. Existing profiles: ${EXISTING}. Pass --profile <name>.${DIR_HINT}"
   fi
-  die "Profile \"${PROFILE}\" not found in ${PROFILES_DIR}, which has no profiles yet. Create one with: bash deploy.sh${PROFILE_ARG} --setup${DIR_HINT:+ —}${DIR_HINT}"
+  die "Profile \"${PROFILE}\" not found in ${PROFILES_DIR}, which has no profiles yet. Create one with: ${RUN_CMD}${PROFILE_ARG} --setup${DIR_HINT:+ —}${DIR_HINT}"
 fi
 if [ "$MODE" = "setup" ] || [ ! -f "$PROFILE_FILE" ]; then
   # A named profile that is missing from the kit may live in another repository.
@@ -636,9 +657,9 @@ fi
 export DMARC_PROFILE_FILE="${PROFILE_FILE}"
 case "$DMARC_PROFILE_FILE" in /*) ;; *) DMARC_PROFILE_FILE="$PWD/$DMARC_PROFILE_FILE" ;; esac
 
-jq empty "$PROFILE_FILE" 2>/dev/null || die "$PROFILE_FILE is not valid JSON. Run: bash deploy.sh${PROFILE_ARG} --setup"
+jq empty "$PROFILE_FILE" 2>/dev/null || die "$PROFILE_FILE is not valid JSON. Run: ${RUN_CMD}${PROFILE_ARG} --setup"
 if [ "$(jq -r '._checksum // empty' "$PROFILE_FILE")" != "$(profile_hash "$PROFILE_FILE")" ]; then
-  CHANGED_MSG="${PROFILE_FILE} was changed outside --setup (or saved by an older version). Review and save it with: bash deploy.sh${PROFILE_ARG} --setup"
+  CHANGED_MSG="${PROFILE_FILE} was changed outside --setup (or saved by an older version). Review and save it with: ${RUN_CMD}${PROFILE_ARG} --setup"
   case "$MODE" in
     list|verify|login) warn "$CHANGED_MSG"; echo "" ;;
     *) die "$CHANGED_MSG" ;;
@@ -791,13 +812,13 @@ scope_report() {
     print_columns "${LOGIN_SCOPES[@]}"
   else
     NM=$(echo "$MISSING" | wc -l | tr -d ' ')
-    v_fail "Missing ${NM} of ${N} required scopes (run: bash deploy.sh${PROFILE_ARG} --login):"
+    v_fail "Missing ${NM} of ${N} required scopes (run: ${RUN_CMD}${PROFILE_ARG} --login):"
     # shellcheck disable=SC2046
     print_columns $(echo "$MISSING")
   fi
   if [ -n "$EXTRA" ]; then
     NE=$(echo "$EXTRA" | wc -l | tr -d ' ')
-    v_warn "${NE} non-required scope(s) also granted — narrow the login with: bash deploy.sh${PROFILE_ARG} --login"
+    v_warn "${NE} non-required scope(s) also granted — narrow the login with: ${RUN_CMD}${PROFILE_ARG} --login"
     # A plain `cf auth login` grants hundreds; only name a handful.
     # shellcheck disable=SC2046
     if [ "$NE" -le 9 ]; then print_columns $(echo "$EXTRA"); fi
@@ -813,7 +834,7 @@ show_login() {
     kv "Credentials" "$(echo "$WHO" | jq -r '.authSource // "?"')"
     scope_report "$WHO"
   else
-    v_fail "Not logged in — run: bash deploy.sh${PROFILE_ARG} --login"
+    v_fail "Not logged in — run: ${RUN_CMD}${PROFILE_ARG} --login"
   fi
 }
 
@@ -829,7 +850,7 @@ logged_in || login
 # Every lookup below stays in the profile's account, even when the login can see others
 # (another deployment of the kit there uses the same Worker name and DNS tag).
 ACCOUNT_ID=$(profile_account "$PROFILE_FILE")
-[ -n "$ACCOUNT_ID" ] || die "${PROFILE_FILE} names no account, and its login can see several. Choose one with: bash deploy.sh${PROFILE_ARG} --setup"
+[ -n "$ACCOUNT_ID" ] || die "${PROFILE_FILE} names no account, and its login can see several. Choose one with: ${RUN_CMD}${PROFILE_ARG} --setup"
 export CLOUDFLARE_ACCOUNT_ID="$ACCOUNT_ID"
 
 # --- Verify mode: compare the live setup with the profile ---
@@ -1103,7 +1124,7 @@ confirm_d1_deletion() {
       | jq -r '.[0].results[0] | if .n == 0 then "no reports" else "\(.n) reports from \(.first) to \(.last)" end' || echo "an unknown number of reports")
     echo "${C_RED}${C_BOLD}D1 database ${DB_NAME} holds ${STATS}.${C_RESET}"
     echo "Deleting it cannot be undone. Copy the reports first if you need them:"
-    echo "  bash deploy.sh --profile <target> --migrate-from=${PROFILE}"
+    echo "  ${RUN_CMD}${DIR_ARG} --profile <target> --migrate-from=${PROFILE}"
     TYPED=""
     printf "Type the database name (%s) to delete it, or press Enter to keep it: " "$DB_NAME"
     { read -r TYPED </dev/tty; } 2>/dev/null || TYPED=""
@@ -1132,7 +1153,7 @@ cleanup() {
   if [ "$MODE" = cleanup ]; then
     if [ "$LEFT" = 0 ]; then
       echo "No leftovers — everything found is in use by profile ${PROFILE}."
-      echo "${C_DIM}To remove the whole deployment, run: bash deploy.sh${PROFILE_ARG} --destroy${C_RESET}"
+      echo "${C_DIM}To remove the whole deployment, run: ${RUN_CMD}${PROFILE_ARG} --destroy${C_RESET}"
       return
     fi
     header "Leftovers (not used by profile ${PROFILE})"
@@ -1217,9 +1238,9 @@ migrate_from() {
   [ -f "$SRC_FILE" ] || die "Source profile ${SRC_FILE} not found."
   [ "$SRC_FILE" = "$PROFILE_FILE" ] && die "Source and target are the same profile."
   cf_as "$SRC_FILE" auth whoami 2>/dev/null | jq -e '.authenticated and .tokenValid != false' >/dev/null \
-    || die "Not logged in for profile ${MIGRATE_FROM}. Run: bash deploy.sh --profile ${MIGRATE_FROM} --login"
+    || die "Not logged in for profile ${MIGRATE_FROM}. Run: ${RUN_CMD}${DIR_ARG} --profile ${MIGRATE_FROM} --login"
   [ -n "$(profile_account "$SRC_FILE")" ] \
-    || die "Profile ${MIGRATE_FROM} names no account, and its login can see several. Choose one with: bash deploy.sh --profile ${MIGRATE_FROM} --setup"
+    || die "Profile ${MIGRATE_FROM} names no account, and its login can see several. Choose one with: ${RUN_CMD}${DIR_ARG} --profile ${MIGRATE_FROM} --setup"
 
   echo "=== Migrate reports: ${MIGRATE_FROM} → ${PROFILE} ==="
   echo ""
@@ -1227,7 +1248,7 @@ migrate_from() {
   SRC_DB=$(cf_as "$SRC_FILE" d1 list | jq -r --arg n "$DB_NAME" 'first(.[] | select(.name == $n) | .uuid) // empty')
   DST_DB=$(cf_as "$PROFILE_FILE" d1 list | jq -r --arg n "$DB_NAME" 'first(.[] | select(.name == $n) | .uuid) // empty')
   [ -n "$SRC_DB" ] || die "No '${DB_NAME}' database found for profile ${MIGRATE_FROM}."
-  [ -n "$DST_DB" ] || die "No '${DB_NAME}' database found for profile ${PROFILE}. Deploy it first: bash deploy.sh${PROFILE_ARG}"
+  [ -n "$DST_DB" ] || die "No '${DB_NAME}' database found for profile ${PROFILE}. Deploy it first: ${RUN_CMD}${PROFILE_ARG}"
   [ "$SRC_DB" = "$DST_DB" ] && die "Both profiles use the same database (${SRC_DB}) — nothing to migrate."
 
   local COUNTS
@@ -1275,9 +1296,9 @@ if [ "$MODE" = "migrate" ]; then
 fi
 
 # --- Validate profile for deploy ---
-[ -n "$ZONE" ] || die "The profile has no zone. Run: bash deploy.sh${PROFILE_ARG} --setup"
+[ -n "$ZONE" ] || die "The profile has no zone. Run: ${RUN_CMD}${PROFILE_ARG} --setup"
 if [ "$ACCESS_EMAILS$ACCESS_EMAIL_DOMAINS$ACCESS_IPS" = "[][][]" ]; then
-  die "The profile allows nobody into the dashboard. Add Access emails, email domains, or IP ranges with: bash deploy.sh${PROFILE_ARG} --setup"
+  die "The profile allows nobody into the dashboard. Add Access emails, email domains, or IP ranges with: ${RUN_CMD}${PROFILE_ARG} --setup"
 fi
 HAS_IDENTITY="false"
 [ "$ACCESS_EMAILS$ACCESS_EMAIL_DOMAINS" != "[][]" ] && HAS_IDENTITY="true"
@@ -1331,7 +1352,7 @@ elif [ -z "$SUBDOMAIN" ]; then
   if [ -n "$ROOT_MX" ]; then
     die "${ZONE} receives mail through ${ROOT_MX}. Enabling Email Routing on it would replace
 those MX records and break that mail. Receive on a subdomain instead (choose it with:
-bash deploy.sh${PROFILE_ARG} --setup)."
+${RUN_CMD}${PROFILE_ARG} --setup)."
   fi
   echo "  Enabling Email Routing on ${ZONE} (it has no MX records yet)..."
   cf email-routing enable --zone "$ZONE" >/dev/null \
@@ -1350,7 +1371,7 @@ outgoing mail would start failing SPF. Publish an SPF record for ${ZONE} first, 
   [ "$ROOT_SPF" = 0 ] && echo "  Note: ${ZONE} has no SPF record; Cloudflare will add one authorizing only its own servers."
   SUB_MX=$(cf dns records list --zone "$ZONE" --type MX --name "$RECEIVE_DOMAIN" | jq -r '[.[].content] | join(", ")')
   [ -z "$SUB_MX" ] || die "${RECEIVE_DOMAIN} already receives mail through ${SUB_MX}. Enabling Email Routing on it would
-take that over. Pick another subdomain with: bash deploy.sh${PROFILE_ARG} --setup"
+take that over. Pick another subdomain with: ${RUN_CMD}${PROFILE_ARG} --setup"
   echo "  Enabling Email Routing on ${RECEIVE_DOMAIN}..."
   cf email-routing enable --zone "$ZONE" --body "$(jq -cn --arg n "$RECEIVE_DOMAIN" '{name: $n}')" >/dev/null \
     || die "Could not enable Email Routing on ${RECEIVE_DOMAIN}. Add it in the dashboard:
@@ -1447,7 +1468,7 @@ fi
 export DMARC_ACCESS_AUD DMARC_ACCESS_TEAM_DOMAIN
 DMARC_ACCESS_AUD=$(cf zero-trust access applications get "$APP_ID" | jq -r '.aud // empty')
 ORG=$(cf zero-trust organization get) || die "Could not read the Zero Trust team domain. The login needs the access-org.read scope.
-Log in again with: bash deploy.sh${PROFILE_ARG} --login"
+Log in again with: ${RUN_CMD}${PROFILE_ARG} --login"
 DMARC_ACCESS_TEAM_DOMAIN=$(echo "$ORG" | jq -r '.auth_domain // empty')
 [ -n "$DMARC_ACCESS_AUD" ] && [ -n "$DMARC_ACCESS_TEAM_DOMAIN" ] || die "Could not read the Access app's AUD tag or the team domain."
 echo "  Allowed: $(jq -rn --argjson e "$ACCESS_EMAILS" --argjson d "$ACCESS_EMAIL_DOMAINS" --argjson i "$ACCESS_IPS" \
@@ -1463,7 +1484,7 @@ if [ -z "$HOST_REC" ]; then
   echo "  Created proxied DNS record for ${DASHBOARD_HOST}"
 elif ! echo "$HOST_REC" | jq -e --arg c "$MANAGED_TAG" '.comment == $c' >/dev/null; then
   die "${DASHBOARD_HOST} already has a DNS record not created by this script.
-Pick a different dashboard hostname with: bash deploy.sh${PROFILE_ARG} --setup"
+Pick a different dashboard hostname with: ${RUN_CMD}${PROFILE_ARG} --setup"
 elif ! echo "$HOST_REC" | jq -e '.type == "A" and .content == "192.0.2.0" and .proxied' >/dev/null; then
   cf dns records update "$(echo "$HOST_REC" | jq -r .id)" --zone "$ZONE" --body "$HOST_BODY" >/dev/null
   echo "  Updated DNS record for ${DASHBOARD_HOST}"
