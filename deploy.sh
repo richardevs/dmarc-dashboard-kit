@@ -1339,6 +1339,18 @@ echo "  Zone: ${ZONE}"
 echo "  DMARC address: ${DMARC_ADDRESS}"
 echo "  Dashboard: https://${DASHBOARD_HOST}"
 
+# Checked before any change, so a deploy that cannot finish Access stops here
+# rather than after Email Routing and the Access groups and policy have changed.
+# Every Access call fails until Zero Trust is set up on the account (a one-time,
+# account-level choice of team name and plan), so check once and explain.
+cf zero-trust access applications list >/dev/null || die "Cloudflare Access is not available on this account.
+If Zero Trust is not set up yet, do it once in the dashboard: Zero Trust → Get started
+(choose a team name and the Free plan), then deploy again."
+# The team domain is the issuer of the Access JWTs the worker checks (src/access.ts).
+ORG=$(cf zero-trust organization get) || die "Could not read the Zero Trust team domain. The login needs the access-org.read scope.
+Log in again with: ${RUN_CMD}${PROFILE_ARG} --login"
+DMARC_ACCESS_TEAM_DOMAIN=$(echo "$ORG" | jq -r '.auth_domain // empty')
+
 # Enabling Email Routing on the zone apex replaces its MX records, which would
 # break any existing mailbox — so that stays a deliberate manual step. A
 # receiving subdomain only gets records under the subdomain, so it is enabled here.
@@ -1382,11 +1394,6 @@ fi
 # Runs before the deploy so the dashboard host is never reachable without Access.
 echo ""
 echo "[1/7] Configuring Cloudflare Access..."
-# Every Access call fails until Zero Trust is set up on the account (a one-time,
-# account-level choice of team name and plan), so check once and explain.
-cf zero-trust access applications list >/dev/null || die "Cloudflare Access is not available on this account.
-If Zero Trust is not set up yet, do it once in the dashboard: Zero Trust → Get started
-(choose a team name and the Free plan), then deploy again."
 
 # Rules within a group's include are OR'd, then the group is AND'd via require.
 # This avoids the flat-require AND problem where several IPs would all have to match.
@@ -1467,9 +1474,6 @@ fi
 # issuer = the team domain, audience = the app's AUD tag. Read by cloudflare.config.ts.
 export DMARC_ACCESS_AUD DMARC_ACCESS_TEAM_DOMAIN
 DMARC_ACCESS_AUD=$(cf zero-trust access applications get "$APP_ID" | jq -r '.aud // empty')
-ORG=$(cf zero-trust organization get) || die "Could not read the Zero Trust team domain. The login needs the access-org.read scope.
-Log in again with: ${RUN_CMD}${PROFILE_ARG} --login"
-DMARC_ACCESS_TEAM_DOMAIN=$(echo "$ORG" | jq -r '.auth_domain // empty')
 [ -n "$DMARC_ACCESS_AUD" ] && [ -n "$DMARC_ACCESS_TEAM_DOMAIN" ] || die "Could not read the Access app's AUD tag or the team domain."
 echo "  Allowed: $(jq -rn --argjson e "$ACCESS_EMAILS" --argjson d "$ACCESS_EMAIL_DOMAINS" --argjson i "$ACCESS_IPS" \
   '[($e|select(length>0)|"emails=\(join(","))"), ($d|select(length>0)|"domains=\(join(","))"), ($i|select(length>0)|"ips=\(join(","))")] | join(" ")')"

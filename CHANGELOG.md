@@ -4,6 +4,11 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [2.4.1] - 2026-11-03
+
+### Fixed
+- Deploy reads the Zero Trust team domain before it changes anything. Before, a login without the `access-org.read` scope stopped the deploy after Email Routing and the Access groups and policy had changed. A new deploy after `--login` completed those changes.
+
 ## [2.4.0] - 2026-11-02
 
 ### Added
@@ -117,7 +122,8 @@ Initial release: self-hosted DMARC report analyzer on Cloudflare (Email Routing 
 - Timezone-aware date grouping and report ID precision.
 - Idempotent `_report._dmarc` and Access policy updates.
 
-[Unreleased]: https://github.com/richardevs/dmarc-dashboard-kit/compare/v2.4.0...HEAD
+[Unreleased]: https://github.com/richardevs/dmarc-dashboard-kit/compare/v2.4.1...HEAD
+[2.4.1]: https://github.com/richardevs/dmarc-dashboard-kit/compare/v2.4.0...v2.4.1
 [2.4.0]: https://github.com/richardevs/dmarc-dashboard-kit/compare/v2.3.0...v2.4.0
 [2.3.0]: https://github.com/richardevs/dmarc-dashboard-kit/compare/v2.2.0...v2.3.0
 [2.2.0]: https://github.com/richardevs/dmarc-dashboard-kit/compare/v2.1.3...v2.2.0
