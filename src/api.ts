@@ -5,10 +5,14 @@ import {
   getTimeSeries,
   getTopSenders,
   getAllSenders,
-  getAllSenderIps,
   getDomainAuth,
   getReports,
   getReportDetail,
+  getSpfAnalysis,
+  getReporters,
+  getIngestErrors,
+  getIngestErrorContent,
+  dismissIngestError,
 } from "./db";
 import { lookupIps } from "./geo";
 import { isAccessAuthorized } from "./access";
@@ -91,6 +95,11 @@ async function route(
     return json(await getAllSenders(env.DB, days, page, pageSize, domain, sort, dir, date, tz));
   }
 
+  // GET /api/reporters?domain= — reporting organizations with their latest report
+  if (path === "/api/reporters") {
+    return json(await getReporters(env.DB, domain));
+  }
+
   // GET /api/reports?page=1&pageSize=20&domain=&sort=&dir=&date=
   if (path === "/api/reports") {
     const page = parseInt(params.get("page") || "1") || 1;
@@ -100,9 +109,25 @@ async function route(
     return json(await getReports(env.DB, page, pageSize, domain, sort, dir, date, tz));
   }
 
-  // GET /api/all-sender-ips?days=30&domain=&date=
-  if (path === "/api/all-sender-ips") {
-    return json(await getAllSenderIps(env.DB, days, domain, date, tz));
+  // GET /api/spf-analysis?days=30&domain=&date=
+  if (path === "/api/spf-analysis") {
+    return json(await getSpfAnalysis(env.DB, days, domain, date, tz));
+  }
+
+  // GET /api/ingest-errors — report emails that could not be read, until dismissed
+  if (path === "/api/ingest-errors") {
+    return json(await getIngestErrors(env.DB));
+  }
+
+  // GET /api/ingest-errors/:id — the stored content; DELETE dismisses the failure
+  const ingestMatch = path.match(/^\/api\/ingest-errors\/(\d+)$/);
+  if (ingestMatch) {
+    const id = Number(ingestMatch[1]);
+    if (request.method === "DELETE") {
+      return (await dismissIngestError(env.DB, id)) ? json({ ok: true }) : json({ error: "not found" }, 404);
+    }
+    const content = await getIngestErrorContent(env.DB, id);
+    return content ? json(content) : json({ error: "not found" }, 404);
   }
 
   // POST /api/ip-info — country and network owner for up to 100 IPs (local DB-IP lookup)

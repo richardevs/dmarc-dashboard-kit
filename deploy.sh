@@ -1221,7 +1221,8 @@ fi
 # --- Migrate mode: copy stored reports from another profile's database ---
 # Each side runs with its own profile's cf login and account, so the source can
 # live on a different Cloudflare account. INSERT OR IGNORE on the unique keys
-# (reports.report_id, record_rows(report_id, source_ip, header_from)) skips
+# (reports.report_id, record_rows(report_id, source_ip, header_from), and the
+# auth_results key) skips
 # reports both databases already have. The source is only read.
 cf_as() {
   local FILE="$1"; shift
@@ -1264,10 +1265,24 @@ migrate_from() {
     "report_id, org_name, date_range_begin, date_range_end, error, domain, adkim, aspf, policy_p, policy_sp, policy_pct, received_at"
   copy_table record_rows \
     "report_id, source_ip, count, disposition, dkim_result, spf_result, reason_type, envelope_to, header_from, date_range_begin"
+  # auth_results exists only in databases deployed with 2.5.0 or later.
+  if [ "$(table_exists "$SRC_FILE" "$SRC_DB" auth_results)" = 1 ]; then
+    if [ "$(table_exists "$PROFILE_FILE" "$DST_DB" auth_results)" = 1 ]; then
+      copy_table auth_results "report_id, source_ip, header_from, kind, domain, selector, scope, result"
+    else
+      warn "Skipped auth_results: the ${PROFILE} database does not have it yet. Deploy ${PROFILE}, then run the migration again."
+    fi
+  fi
 
   echo ""
   echo "=== Migration complete ==="
   echo "Re-running is safe: rows already copied are skipped."
+}
+
+# table_exists <profile file> <database> <table>: prints 1 or 0.
+table_exists() {
+  local SQL="SELECT COUNT(*) AS n FROM sqlite_master WHERE type = 'table' AND name = ?"
+  cf_as "$1" d1 query "$2" --sql "$SQL" --params "$3" | jq -r '.[0].results[0].n'
 }
 
 # copy_table <table> <columns>: pages through the source by id and inserts each

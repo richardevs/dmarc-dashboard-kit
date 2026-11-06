@@ -31,6 +31,16 @@ export type DmarcRecordRow = {
   recordRowPolicyEvaluatedReasonType: PolicyOverrideType | null;
   recordIdentifiersEnvelopeTo: string;
   recordIdentifiersHeaderFrom: string;
+  // The receiver's per-mechanism results (<auth_results>): which domains SPF and DKIM checked.
+  authResults: AuthResult[];
+};
+
+export type AuthResult = {
+  kind: "spf" | "dkim";
+  domain: string;
+  selector: string; // DKIM only
+  scope: string; // SPF only: "mfrom" or "helo" (empty when the reporter omits it)
+  result: string;
 };
 
 export enum AlignmentType {

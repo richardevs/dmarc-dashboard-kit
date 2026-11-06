@@ -1,23 +1,51 @@
 <script lang="ts">
-  import { onMount } from "svelte";
-  import type { ReportList, ReportListItem } from "../lib/api";
+  import { getReporters, type ReportList, type Reporter } from "../lib/api";
 
-  let { reports, onPageChange, onSortChange, maskDomain }: {
+  let { reports, domain, onPageChange, onSortChange, maskDomain }: {
     reports: ReportList | null;
+    domain: string;
     onPageChange: (page: number) => void;
     onSortChange: (sort: string, dir: string) => void;
     maskDomain: (name: string) => string;
   } = $props();
 
-  let expanded: boolean = $state(false);
+  // "reporters" (default): one row per organization that sends reports. "all": every report.
+  type View = "reporters" | "all";
+  let view: View = $state(localStorage.getItem("reports-view") === "all" ? "all" : "reporters");
 
-  onMount(() => {
-    expanded = localStorage.getItem("reports-expanded") === "true";
+  function setView(v: View) {
+    view = v;
+    localStorage.setItem("reports-view", v);
+  }
+
+  let reporters = $state<Reporter[] | null>(null);
+
+  $effect(() => {
+    const d = domain;
+    getReporters(d || undefined)
+      .then((r) => { if (d === domain) reporters = r; })
+      .catch(() => { reporters = []; });
   });
 
-  function toggleExpanded() {
-    expanded = !expanded;
-    localStorage.setItem("reports-expanded", String(expanded));
+  // received_at is stored as UTC "YYYY-MM-DD HH:MM:SS".
+  function receivedDate(utc: string): Date {
+    return new Date(utc.replace(" ", "T") + "Z");
+  }
+
+  const relative = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
+
+  // A reporter quiet for this long has probably stopped sending.
+  const STALE_DAYS = 30;
+
+  function isStale(utc: string): boolean {
+    return Date.now() - receivedDate(utc).getTime() > STALE_DAYS * 86_400_000;
+  }
+
+  function ago(utc: string): string {
+    const hours = (receivedDate(utc).getTime() - Date.now()) / 3_600_000;
+    if (hours > -1) return "less than 1 hour ago";
+    if (hours > -48) return relative.format(Math.round(hours), "hour");
+    return relative.format(Math.round(hours / 24), "day");
   }
 
   function formatDate(ts: number): string {
@@ -64,21 +92,57 @@
   }
 </script>
 
-<div class="table-container">
-  <button class="toggle" aria-expanded={expanded} onclick={toggleExpanded}>
-    <span class="chevron">{expanded ? "\u25BC" : "\u25B6"}</span> Recent Reports
-    {#if reports}
-      <span class="count">({reports.total})</span>
+<div class="panel reports">
+  <div class="panel-head">
+  <div class="tab-group" role="tablist" aria-label="Reports">
+    <button class="tab-btn" role="tab" aria-selected={view === "reporters"} class:active={view === "reporters"} onclick={() => setView("reporters")}>
+      Reporters{#if reporters}<span class="count">({reporters.length})</span>{/if}
+    </button>
+    <button class="tab-btn" role="tab" aria-selected={view === "all"} class:active={view === "all"} onclick={() => setView("all")}>
+      All reports{#if reports}<span class="count">({reports.total})</span>{/if}
+    </button>
+  </div>
+  </div>
+
+  {#if view === "reporters"}
+    <p class="note">All time. A grey date is older than {STALE_DAYS} days.</p>
+    {#if !reporters}
+      <p class="empty">Loading…</p>
+    {:else}
+      <table class="data compact">
+        <thead>
+          <tr>
+            <th scope="col">Reporter</th>
+            <th scope="col" class="num">Reports</th>
+            <th scope="col">Last received</th>
+            <th scope="col">Last report ID</th>
+          </tr>
+        </thead>
+        <tbody>
+          {#each reporters as r}
+            <tr>
+              <td>{r.org_name || "—"}</td>
+              <td class="num">{r.reports.toLocaleString()}</td>
+              <td class="nowrap" class:stale={isStale(r.last_received_at)} title="{receivedDate(r.last_received_at).toLocaleString()} ({ago(r.last_received_at)})">
+                {receivedDate(r.last_received_at).toLocaleDateString()}
+              </td>
+              <td class="mono truncate" title={r.last_report_id}>{r.last_report_id}</td>
+            </tr>
+          {/each}
+          {#if reporters.length === 0}
+            <tr><td colspan="4" class="empty">No reports</td></tr>
+          {/if}
+        </tbody>
+      </table>
     {/if}
-  </button>
-  {#if expanded && reports}
-    <table>
+  {:else if reports}
+    <table class="data">
       <thead>
         <tr>
-          <th scope="col" class="sortable" tabindex="0" aria-sort={sortKey === "org_name" ? (sortAsc ? "ascending" : "descending") : "none"} onclick={() => toggleSort("org_name")} onkeydown={(e) => e.key === "Enter" && toggleSort("org_name")}>Org<span aria-hidden="true">{sortIndicator("org_name")}</span></th>
+          <th scope="col" class="sortable" tabindex="0" aria-sort={sortKey === "org_name" ? (sortAsc ? "ascending" : "descending") : "none"} onclick={() => toggleSort("org_name")} onkeydown={(e) => e.key === "Enter" && toggleSort("org_name")}>Reporter<span aria-hidden="true">{sortIndicator("org_name")}</span></th>
           <th scope="col" class="sortable" tabindex="0" aria-sort={sortKey === "domain" ? (sortAsc ? "ascending" : "descending") : "none"} onclick={() => toggleSort("domain")} onkeydown={(e) => e.key === "Enter" && toggleSort("domain")}>Domain<span aria-hidden="true">{sortIndicator("domain")}</span></th>
-          <th scope="col" class="sortable" tabindex="0" aria-sort={sortKey === "date_range_begin" ? (sortAsc ? "ascending" : "descending") : "none"} onclick={() => toggleSort("date_range_begin")} onkeydown={(e) => e.key === "Enter" && toggleSort("date_range_begin")}>Date Range<span aria-hidden="true">{sortIndicator("date_range_begin")}</span></th>
-          <th scope="col" class="records-header">Records</th>
+          <th scope="col" class="sortable" tabindex="0" aria-sort={sortKey === "date_range_begin" ? (sortAsc ? "ascending" : "descending") : "none"} onclick={() => toggleSort("date_range_begin")} onkeydown={(e) => e.key === "Enter" && toggleSort("date_range_begin")}>Period<span aria-hidden="true">{sortIndicator("date_range_begin")}</span></th>
+          <th scope="col" class="num">Messages</th>
           <th scope="col">Report ID</th>
         </tr>
       </thead>
@@ -88,19 +152,19 @@
             <td>{r.org_name}</td>
             <td>{maskDomain(r.domain)}</td>
             <td class="nowrap">{formatDate(r.date_range_begin)} – {formatDate(r.date_range_end)}</td>
-            <td class="records">{r.total_count.toLocaleString()}</td>
+            <td class="num">{r.total_count.toLocaleString()}</td>
             <td class="mono truncate" title={String(r.report_id)}>{String(r.report_id)}</td>
           </tr>
         {/each}
         {#if reports.data.length === 0}
-          <tr><td colspan="5" class="empty">No reports yet</td></tr>
+          <tr><td colspan="5" class="empty">No reports</td></tr>
         {/if}
       </tbody>
     </table>
     {#if totalPages > 1}
       <div class="pagination">
         <button aria-label="First page" disabled={reports.page <= 1} onclick={() => goToPage(1)}>&laquo;</button>
-        <button aria-label="Previous page" disabled={reports.page <= 1} onclick={() => goToPage(reports!.page - 1)}>&lsaquo; Prev</button>
+        <button aria-label="Previous page" disabled={reports.page <= 1} onclick={() => goToPage(reports!.page - 1)}>&lsaquo; Previous</button>
         <span class="page-info">
           <input
             type="number"
@@ -121,63 +185,12 @@
 </div>
 
 <style>
-  .table-container {
-    background: var(--card-bg, #fff);
-    border: 1px solid var(--border, #e2e8f0);
-    border-radius: 8px;
-    padding: 1.25rem;
-    overflow-x: auto;
-  }
-  .toggle {
-    all: unset;
-    cursor: pointer;
-    user-select: none;
-    font-size: 1rem;
-    font-weight: 700;
-    color: var(--text, #1e293b);
-  }
-  .toggle:focus-visible {
-    outline: 2px solid #3b82f6;
-    outline-offset: 2px;
-  }
-  .toggle:hover { opacity: 0.8; }
-  .chevron { display: inline-block; width: 1em; font-size: 0.75rem; }
-  .count { font-weight: 400; color: var(--muted, #64748b); font-size: 0.85rem; }
-  table { width: 100%; border-collapse: collapse; font-size: 0.85rem; margin-top: 1rem; }
-  th, td {
-    text-align: left;
-    padding: 0.65rem 0.75rem;
-    border-bottom: 1px solid var(--border, #e2e8f0);
-  }
-  th {
-    font-size: 0.8rem;
-    font-weight: 600;
-    color: var(--text, #1e293b);
-    opacity: 0.8;
-    border-bottom: 2px solid var(--border, #e2e8f0);
-  }
-  .sortable { cursor: pointer; user-select: none; white-space: nowrap; }
-  .sortable:hover { opacity: 1; }
-  tbody tr:nth-child(even) { background: var(--row-alt, #f1f5f9); }
-  .mono { font-family: monospace; font-size: 0.8rem; }
+  .reports { overflow-x: auto; }
+  .compact th, .compact td { padding: 0.35rem 0.6rem; }
+  .compact td { font-size: 0.8rem; }
+  .stale { color: var(--muted); }
   .truncate { max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .records { text-align: right; font-variant-numeric: tabular-nums; }
-  .records-header { text-align: right; }
   .nowrap { white-space: nowrap; }
-  .empty { text-align: center; color: var(--muted, #64748b); }
-  .pagination {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 0.5rem;
-    margin-top: 1rem;
-  }
-  .page-info {
-    display: flex;
-    align-items: center;
-    gap: 0.25rem;
-    font-size: 0.85rem;
-  }
   .page-input {
     width: 3.5em;
     padding: 0.3rem 0.4rem;
@@ -192,19 +205,4 @@
   }
   .page-input::-webkit-inner-spin-button,
   .page-input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
-  button {
-    padding: 0.4rem 0.6rem;
-    border: 1px solid var(--border, #e2e8f0);
-    border-radius: 4px;
-    background: var(--card-bg, #fff);
-    color: var(--text, #1e293b);
-    cursor: pointer;
-    font-size: 0.85rem;
-  }
-  button:hover:not(:disabled) { background: var(--border, #e2e8f0); }
-  button:disabled {
-    opacity: 0.4;
-    color: var(--muted, #64748b);
-    cursor: not-allowed;
-  }
 </style>

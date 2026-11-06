@@ -45,16 +45,22 @@ pnpm --filter dashboard run check   # svelte-check + tsc
 - `src/types.ts` — Env, DmarcRecordRow, DMARC enums
 - `migrations/0001_init.sql` — D1 schema (reports + record_rows tables)
 - `migrations/0002_record_rows_unique.sql` — unique index on record_rows(report_id, source_ip, header_from)
+- `migrations/0003_auth_results.sql` — auth_results table (per-mechanism SPF/DKIM results from `<auth_results>`)
+- `migrations/0004_ingest_errors.sql` — ingest_errors table (unreadable report emails with their XML or base64 attachment, capped at 50/day and 256 KB each; listed in the dashboard's Ingest errors tab until dismissed)
+- `dashboard/src/lib/spf.ts` — SPF resolver in the browser: Cloudflare DoH JSON API, localStorage cache by TTL, include/redirect/a/mx/exists evaluation (never sends a source IP: IP macros count as undetermined), alignment helpers
+- `dashboard/src/lib/dns-checks.ts` — DMARC, DKIM (selectors from the reports) and SPF record format checks for the Analyzer page
+- `dashboard/src/lib/spf-analysis.ts` — classifies non-aligned SPF rows (Return-Path / IP / both / unknown)
 - `deploy.sh` — deploy and manage via `cf`. Deploy: login, Access, D1, migrations, dashboard build (+ DB-IP download), worker deploy, email routing, DNS. Actions: `--setup` (the only way to write a profile), `--list`, `--verify`, `--cleanup` (leftovers only), `--destroy` (whole deployment), `--migrate-from`, `--login`, `--import-env`
 - `profiles/<name>.json` — per-deployment settings, written only by `deploy.sh --setup` (and checksummed: deploy refuses hand-edited profiles); gitignored except `example.json`; selected as `--mode <name>`. `deploy.sh --profiles-dir <dir>` keeps them outside the kit (e.g. a company repo with the kit as a submodule)
 - `cloudflare.config.ts` — Worker config; reads the profile (`DMARC_PROFILE_FILE` from deploy.sh, else `profiles/<mode>.json`), D1 id comes from `DMARC_D1_ID` (set by deploy.sh)
 - `wrangler.config.ts` — build settings (assets directory)
 - `dashboard/` — Svelte 5 + Vite + Chart.js SPA
+- `dashboard/src/styles.css` — shared design tokens (colors, spacing, type sizes) and shared parts (`.panel`, `.note`, `.data` tables, `.btn-small`, tabs, badges, paging, status icons); components use these classes instead of scoped copies
 - `CHANGELOG.md` — Keep a Changelog format; add every user-facing change under `[Unreleased]`
 
 ## D1 Schema
 
-Two tables: `reports` (metadata, unique by report_id) and `record_rows` (per-IP results with denormalized date_range_begin). `0001_init.sql` defines the tables and indexes; `0002_record_rows_unique.sql` adds a unique index on `(report_id, source_ip, header_from)` to prevent duplicate rows.
+Three tables: `reports` (metadata, unique by report_id), `record_rows` (per-IP results with denormalized date_range_begin), and `auth_results` (0..n SPF and DKIM entries per record row, keyed by `(report_id, source_ip, header_from, kind, domain, selector, scope)`; only reports received since 0003 have them, as raw XML is not kept). `0001_init.sql` defines the first two; `0002_record_rows_unique.sql` adds a unique index on `(report_id, source_ip, header_from)` to prevent duplicate rows; `0003_auth_results.sql` adds `auth_results`.
 
 ## Multi-Domain Support
 
@@ -103,4 +109,4 @@ When auditing this codebase, check the following:
 - `deploy.sh`: every step must be idempotent — re-running should not create duplicate DNS records, D1 databases, or Access policies; DNS records it creates carry the `managed-by:dmarc-dashboard-kit` comment
 - `deploy.sh` must run on macOS's bash 3.2: no `${var,,}`, `mapfile`, or associative arrays; no apostrophe inside `${x:-…}` within double quotes; no jq programs with quotes/parentheses nested inside `"$(…)"` (assign to a variable first)
 - `deploy.sh`: every Cloudflare call goes through the `cf()` wrapper (quiet output, errors shown, read-only calls retried on 5xx); deletes pass `--force` (cf otherwise prompts and silently aborts without a terminal); confirmations use `confirm` (exact Y/N), optional follow-ups use `offer`
-- D1 holds the only data a redeploy cannot rebuild: a database may be deleted only by `--destroy`, after showing its report count and getting its name typed in; `delete_item` refuses otherwise. Never add another path that deletes a D1 database or deletes/overwrites rows
+- D1 holds the only data a redeploy cannot rebuild: a database may be deleted only by `--destroy`, after showing its report count and getting its name typed in; `delete_item` refuses otherwise. Never add another path that deletes a D1 database or deletes/overwrites rows of `reports`, `record_rows` or `auth_results`. The one exception is dismissing an `ingest_errors` row from the dashboard (diagnostics only, no report data)

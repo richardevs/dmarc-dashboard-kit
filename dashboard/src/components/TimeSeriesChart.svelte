@@ -41,7 +41,7 @@
         labels,
         datasets: [
           {
-            label: "Fail",
+            label: "Quarantined or rejected",
             data: display.map((p) => p.fail_count),
             borderColor: "#dc2626",
             backgroundColor: "rgba(220, 38, 38, 0.1)",
@@ -51,7 +51,7 @@
             pointHoverRadius: 7,
           },
           {
-            label: "Pass",
+            label: "Delivered",
             data: display.map((p) => p.pass_count),
             borderColor: "#16a34a",
             backgroundColor: "rgba(22, 163, 74, 0.1)",
@@ -98,61 +98,27 @@
   onDestroy(() => chart?.destroy());
 </script>
 
-<div class="chart-container">
-  <div class="chart-header">
-    <h3>Messages Over Time{selectedDate ? ` — ${selectedDate}` : ""}</h3>
+<div class="panel">
+  <div class="panel-head chart-header">
+    <h3>Messages per day{selectedDate ? ` — ${selectedDate}` : ""}</h3>
     <div class="chart-header-right">
       {#if selectedDate}
-        <button class="revert-btn" onclick={() => onDateClick("")}>← All {"\u00A0"}</button>
+        <button class="btn-small" onclick={() => onDateClick("")}>← Show all days</button>
       {/if}
-      <span class="tz-badge">{tzLabel}</span>
+      <span class="badge badge-gray">{tzLabel}</span>
     </div>
   </div>
   <div class="chart-wrapper">
-    <canvas bind:this={canvas} aria-label={selectedDate ? `Messages over time — filtered to ${selectedDate}` : "Messages over time line chart"}></canvas>
+    <canvas bind:this={canvas} aria-label={selectedDate ? `Messages per day. Selected day: ${selectedDate}` : "Messages per day. Click a day to show only that day."}></canvas>
   </div>
 </div>
 
 <style>
-  .chart-container {
-    background: var(--card-bg, #fff);
-    border: 1px solid var(--border, #e2e8f0);
-    border-radius: 8px;
-    padding: 1.25rem;
-    margin-bottom: 1.5rem;
-  }
-  .chart-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 1rem;
-  }
-  h3 {
-    margin: 0;
-    font-size: 1rem;
-  }
-  .revert-btn {
-    padding: 0.3rem 0.7rem;
-    border: 1px solid var(--border, #e2e8f0);
-    border-radius: 4px;
-    background: var(--card-bg, #fff);
-    color: var(--text, #1e293b);
-    cursor: pointer;
-    font-size: 0.8rem;
-  }
-  .revert-btn:hover { background: var(--border, #e2e8f0); }
+  .chart-header { margin-bottom: var(--gap-md); }
   .chart-header-right {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-  }
-  .tz-badge {
-    font-size: 0.75rem;
-    color: var(--text-muted, #64748b);
-    background: var(--border, #e2e8f0);
-    padding: 0.2rem 0.5rem;
-    border-radius: 4px;
-    white-space: nowrap;
+    gap: var(--gap-sm);
   }
   .chart-wrapper {
     position: relative;

@@ -115,10 +115,6 @@ export function getReports(page = "1", pageSize = "20", domain?: string, sort?: 
   return cachedFetchJSON("/api/reports", { page, pageSize, domain: domain || "", sort: sort || "", dir: dir || "", date: date || "", tz: tzOffset });
 }
 
-export function getAllSenderIps(days: string, domain?: string, date?: string): Promise<string[]> {
-  return cachedFetchJSON("/api/all-sender-ips", { days, domain: domain || "", date: date || "", tz: tzOffset });
-}
-
 export interface IpInfo {
   query: string;
   country: string;
@@ -169,3 +165,86 @@ export async function fetchIpInfo(ips: string[]): Promise<Record<string, IpInfo>
   return data;
 }
 
+
+export interface SpfAnalysisRow {
+  policy_domain: string;
+  header_from: string;
+  source_ip: string;
+  spf: string | null; // JSON [domain, result, scope] from auth_results; null for older reports
+  has_auth: number;
+  aspf: number;
+  total: number;
+  spf_aligned: number;
+  dkim_aligned: number;
+  forwarded: number;
+}
+
+export interface DkimSignature {
+  domain: string;
+  selector: string;
+  result: string;
+  messages: number;
+}
+
+export interface SourceDkimSignature extends DkimSignature {
+  header_from: string;
+  source_ip: string;
+}
+
+export interface SpfAnalysis {
+  totals: { total: number; spf_aligned: number; dkim_aligned: number; with_auth: number };
+  rows: SpfAnalysisRow[];
+  truncated: boolean;
+  dkim: DkimSignature[]; // all sources; picks the selectors for the DNS record checks
+  dkimBySource: SourceDkimSignature[];
+}
+
+export function getSpfAnalysis(days: string, domain?: string, date?: string): Promise<SpfAnalysis> {
+  return cachedFetchJSON("/api/spf-analysis", { days, domain: domain || "", date: date || "", tz: tzOffset });
+}
+
+export interface IngestErrorItem {
+  id: number;
+  received_at: number;
+  sender: string;
+  stage: "mime" | "attachment" | "report";
+  error: string;
+  filename: string;
+  mime_type: string;
+  size: number;
+  content_type: "" | "xml" | "base64";
+  content_truncated: number;
+}
+
+export interface IngestErrorContent {
+  content: string;
+  content_type: "" | "xml" | "base64";
+  content_truncated: number;
+  filename: string;
+}
+
+// Not cached: the list changes when a failure is dismissed.
+export function getIngestErrors(): Promise<IngestErrorItem[]> {
+  return fetchJSON("/api/ingest-errors");
+}
+
+export function getIngestErrorContent(id: number): Promise<IngestErrorContent> {
+  return fetchJSON(`/api/ingest-errors/${id}`);
+}
+
+export async function dismissIngestError(id: number): Promise<void> {
+  const res = await fetch(new URL(`/api/ingest-errors/${id}`, window.location.origin), { method: "DELETE" });
+  if (!res.ok && res.status !== 404) throw new Error(`API error: ${res.status}`);
+}
+
+export interface Reporter {
+  org_name: string;
+  reports: number;
+  last_received_at: string; // UTC, "YYYY-MM-DD HH:MM:SS"
+  last_report_id: string;
+  last_range_end: number;
+}
+
+export function getReporters(domain?: string): Promise<Reporter[]> {
+  return cachedFetchJSON("/api/reporters", { domain: domain || "" });
+}

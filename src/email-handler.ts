@@ -5,12 +5,13 @@ import { XMLParser } from "fast-xml-parser";
 import {
   Env,
   DmarcRecordRow,
+  AuthResult,
   AlignmentType,
   DispositionType,
   DMARCResultType,
   PolicyOverrideType,
 } from "./types";
-import { insertReport } from "./db";
+import { insertReport, recordIngestError, INGEST_CONTENT_MAX } from "./db";
 
 export async function handleEmail(
   message: ForwardableEmailMessage,
@@ -25,10 +26,9 @@ export async function handleEmail(
     const rawEmail = new Response(message.raw);
     email = await parser.parse(await rawEmail.arrayBuffer());
   } catch (err) {
-    console.error("DMARC email parse failed:", {
-      from: message.from,
-      error: err instanceof Error ? err.message : err,
-    });
+    const error = err instanceof Error ? err.message : String(err);
+    console.error("DMARC email parse failed:", { from: message.from, error });
+    await recordIngestError(env.DB, { sender: message.from, stage: "mime", error });
     return;
   }
 
@@ -53,17 +53,33 @@ export async function handleEmail(
   // Extract and parse the report. Senders mislabel the MIME type (e.g. au.com
   // sends gzip as application/octet-stream), so we sniff the content itself.
   // Any failure here is permanent for this message — log and drop, don't retry.
+  // The failed content goes to ingest_errors (not the log), so the dashboard can show it
+  // for copying into a bug report.
   let rows: DmarcRecordRow[];
+  let xml: string | undefined;
   try {
-    const reportJSON = await getDMARCReportXML({ content });
-    rows = getReportRows(reportJSON);
+    xml = await getDMARCReportXML({ content });
+    rows = getReportRows(new XMLParser({ parseTagValue: false }).parse(xml));
   } catch (err) {
+    const error = err instanceof Error ? err.message : String(err);
     console.error("DMARC report extraction failed:", {
       from: message.from,
       filename: attachment.filename,
       mimeType: attachment.mimeType,
       size: content.byteLength,
-      error: err instanceof Error ? err.message : err,
+      error,
+    });
+    await recordIngestError(env.DB, {
+      sender: message.from,
+      stage: xml === undefined ? "attachment" : "report",
+      error,
+      filename: attachment.filename ?? "",
+      mimeType: attachment.mimeType ?? "",
+      size: content.byteLength,
+      // An attachment that could not be unpacked is kept as is, for download.
+      ...(xml === undefined
+        ? { content: content.byteLength <= (INGEST_CONTENT_MAX / 4) * 3 ? toBase64(content) : "", contentType: "base64" as const }
+        : { content: xml, contentType: "xml" as const }),
     });
     return;
   }
@@ -102,6 +118,15 @@ function isAllowedDomain(domain: string, allowed: string[] | undefined): boolean
   });
 }
 
+function toBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  }
+  return btoa(binary);
+}
+
 const REPORT_EXTENSIONS = [".xml", ".gz", ".zip"];
 const REPORT_MIME_TYPES = new Set([
   "application/gzip",
@@ -121,13 +146,12 @@ function isReportAttachment(attachment: {
   return REPORT_MIME_TYPES.has((attachment.mimeType ?? "").toLowerCase());
 }
 
-async function getDMARCReportXML(attachment: { content: ArrayBuffer }) {
+async function getDMARCReportXML(attachment: { content: ArrayBuffer }): Promise<string> {
   const bytes = new Uint8Array(attachment.content);
   if (bytes.length < 4) {
     throw new Error(`attachment too small to parse (${bytes.length} bytes)`);
   }
 
-  const xmlParser = new XMLParser({ parseTagValue: false });
   let xml: string;
 
   // Detect the container by magic bytes rather than the (often wrong) MIME type.
@@ -144,7 +168,7 @@ async function getDMARCReportXML(attachment: { content: ArrayBuffer }) {
     xml = new TextDecoder().decode(attachment.content);
   }
 
-  return xmlParser.parse(xml);
+  return xml;
 }
 
 async function getXMLFromZip(content: ArrayBuffer): Promise<string> {
@@ -214,8 +238,51 @@ function getReportRows(report: any): DmarcRecordRow[] {
         ] ?? null,
       recordIdentifiersEnvelopeTo: record.identifiers.envelope_to || "",
       recordIdentifiersHeaderFrom: record.identifiers.header_from || "",
+      authResults: getAuthResults(record.auth_results),
     });
   }
 
   return rows;
+}
+
+function asArray<T>(value: T | T[] | undefined): T[] {
+  if (value === undefined || value === null || value === "") return [];
+  return Array.isArray(value) ? value : [value];
+}
+
+function normDomain(value: unknown): string {
+  return typeof value === "string" ? value.trim().toLowerCase().replace(/\.$/, "") : "";
+}
+
+function normWord(value: unknown): string {
+  return typeof value === "string" ? value.trim().toLowerCase() : "";
+}
+
+// <auth_results> holds 0..n <dkim> and 0..n <spf> entries; a missing or malformed block
+// yields none rather than failing the whole report.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function getAuthResults(authResults: any): AuthResult[] {
+  if (!authResults || typeof authResults !== "object") return [];
+  const results: AuthResult[] = [];
+  for (const spf of asArray(authResults.spf)) {
+    if (!spf || typeof spf !== "object") continue;
+    results.push({
+      kind: "spf",
+      domain: normDomain(spf.domain),
+      selector: "",
+      scope: normWord(spf.scope),
+      result: normWord(spf.result),
+    });
+  }
+  for (const dkim of asArray(authResults.dkim)) {
+    if (!dkim || typeof dkim !== "object") continue;
+    results.push({
+      kind: "dkim",
+      domain: normDomain(dkim.domain),
+      selector: typeof dkim.selector === "string" ? dkim.selector.trim() : "",
+      scope: "",
+      result: normWord(dkim.result),
+    });
+  }
+  return results;
 }

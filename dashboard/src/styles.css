@@ -1,0 +1,242 @@
+/* Shared design tokens and the parts that every page uses (panels, notes, tables, buttons,
+   tabs, badges, paging). Components keep only their own layout; when a component needs
+   one of these parts, it uses the class here instead of a scoped copy, so spacing stays
+   the same everywhere. */
+
+:root {
+  --card-bg: #ffffff;
+  --border: #e2e8f0;
+  --muted: #64748b;
+  --bg: #f8fafc;
+  --text: #1e293b;
+  --row-alt: #f1f5f9;
+
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  /* Spacing scale */
+  --gap-xs: 0.25rem;
+  --gap-sm: 0.5rem;
+  --gap-md: 0.75rem;
+  --gap-lg: 1.25rem;
+  --gap-section: 1.5rem;
+  /* Type scale */
+  --text-xs: 0.78rem;  /* notes, secondary lines, small buttons */
+  --text-sm: 0.85rem;  /* tables, buttons, body text */
+  --text-md: 1rem;     /* panel headings */
+  --cell-pad: 0.55rem 0.6rem;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --card-bg: #1e293b;
+    --border: #334155;
+    --muted: #94a3b8;
+    --bg: #0f172a;
+    --text: #f1f5f9;
+    --row-alt: #1a2235;
+  }
+}
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+*:focus-visible {
+  outline: 2px solid #3b82f6;
+  outline-offset: 2px;
+}
+
+/* --- Panel: the card around each section --- */
+
+.panel {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: var(--gap-lg);
+  margin-bottom: var(--gap-section);
+  min-width: 0;
+}
+
+.panel h3 {
+  margin: 0 0 var(--gap-xs);
+  font-size: var(--text-md);
+}
+
+.panel-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--gap-md);
+  margin-bottom: var(--gap-xs);
+}
+
+.panel-head h3 { margin: 0; }
+
+.note {
+  margin: 0 0 var(--gap-md);
+  font-size: var(--text-xs);
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.empty { color: var(--muted); font-size: var(--text-sm); }
+
+/* --- Data tables --- */
+
+.data {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+
+.data th,
+.data td {
+  padding: var(--cell-pad);
+  text-align: left;
+  vertical-align: top; /* cells with a second line (IP owner, notes) start on the same line */
+  border-bottom: 1px solid var(--border);
+}
+
+.data th {
+  font-size: 0.8rem;
+  font-weight: 600;
+  opacity: 0.8;
+  border-bottom-width: 2px;
+}
+
+.data tbody tr:nth-child(even) { background: var(--row-alt); }
+.data .num { text-align: right; font-variant-numeric: tabular-nums; }
+.data .empty { text-align: center; }
+
+.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
+
+.table-scroll { overflow-x: auto; }
+
+.mono { font-family: var(--mono); font-size: 0.8rem; }
+.muted { color: var(--muted); }
+.sub { display: block; margin-top: 0.15rem; font-size: 0.72rem; color: var(--muted); }
+
+/* --- Buttons and tabs --- */
+
+.btn-small {
+  padding: 0.3rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--card-bg);
+  color: var(--text);
+  font-size: var(--text-xs);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.btn-small:hover:not(:disabled) { background: var(--row-alt); }
+.btn-small:disabled { opacity: 0.6; cursor: default; }
+.btn-small.active { background: var(--text); color: var(--bg); border-color: var(--text); }
+
+.tab-group { display: flex; }
+
+.tab-btn {
+  padding: 0.35rem 0.8rem;
+  border: 1px solid var(--border);
+  background: var(--card-bg);
+  color: var(--text);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.tab-btn:first-child { border-radius: 4px 0 0 4px; }
+.tab-btn:last-child { border-radius: 0 4px 4px 0; }
+.tab-btn:not(:last-child) { border-right: none; }
+.tab-btn.active { background: var(--text); color: var(--bg); }
+.tab-btn .count { margin-left: 0.3rem; font-weight: 400; font-size: 0.8rem; opacity: 0.8; }
+
+/* --- Badges --- */
+
+.badge {
+  display: inline-block;
+  padding: 0.1rem 0.45rem;
+  border-radius: 4px;
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.badge-green { background: #dcfce7; color: #166534; }
+.badge-amber { background: #fef3c7; color: #92400e; }
+.badge-red { background: #fef2f2; color: #dc2626; }
+/* An outline, not a fill: a fill matches the alternate row background and disappears. */
+.badge-gray { background: transparent; color: var(--muted); box-shadow: inset 0 0 0 1px var(--border); }
+/* A problem result: a quiet red outline, so it stands out without alarm. */
+.badge-problem { box-shadow: inset 0 0 0 1px rgba(220, 38, 38, 0.55); }
+
+/* --- Paging --- */
+
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--gap-sm);
+  margin-top: var(--gap-md);
+  font-size: var(--text-sm);
+}
+
+.pagination button {
+  padding: 0.35rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--card-bg);
+  color: var(--text);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.pagination button:hover:not(:disabled) { background: var(--row-alt); }
+.pagination button:disabled { opacity: 0.4; cursor: not-allowed; }
+.pagination .page-info { color: var(--muted); }
+
+/* --- Messages --- */
+
+.error-box {
+  background: #fef2f2;
+  color: #dc2626;
+  border: 1px solid #fecaca;
+  border-radius: 6px;
+  padding: var(--gap-md) var(--gap-lg);
+  margin-bottom: var(--gap-section);
+  font-size: var(--text-sm);
+}
+
+/* --- Rate: a short bar with a percentage --- */
+
+.rate-cell { display: inline-flex; align-items: center; gap: var(--gap-sm); }
+.rate-bar {
+  display: inline-block;
+  width: 40px;
+  height: 6px;
+  background: var(--border);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.rate-fill { display: block; height: 100%; border-radius: 3px; }
+.rate-text { display: inline-block; min-width: 3.5em; text-align: right; font-variant-numeric: tabular-nums; }
+
+/* --- Status icon: ✓ no problem, ! warning, ✗ error, ? no data --- */
+
+.check-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.2rem;
+  height: 1.2rem;
+  border-radius: 50%;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #fff;
+  flex-shrink: 0;
+}
+.check-ok { background: #16a34a; }
+.check-warning { background: #ca8a04; }
+.check-error { background: #dc2626; }
+.check-none { background: #a3a3a3; }

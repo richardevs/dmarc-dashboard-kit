@@ -132,7 +132,7 @@ Confirmations take exactly `Y` or `N` and ask again on anything else.
 bash deploy.sh --profile company --migrate-from=default
 ```
 
-Copies all stored reports from the `default` profile's database into `company`'s, using each profile's own login (so it works across accounts). Reports already present are skipped, so it is safe to re-run.
+Copies all stored reports (with their SPF and DKIM results) from the `default` profile's database into `company`'s, using each profile's own login (so it works across accounts). Reports already present are skipped, so it is safe to re-run.
 
 ## Multi-Domain Support
 
@@ -162,7 +162,34 @@ With the domains listed, deploy and `--verify` also check each domain's publishe
 
 ## Sender IP details
 
-"Show Details" in the senders table adds each IP's country and network owner. Deploy downloads the free [DB-IP Lite](https://db-ip.com/db/lite.php) country and ASN databases (CC BY 4.0, refreshed monthly, cached in `.cache/dbip/`) into the dashboard's static assets, and the worker looks IPs up locally — no external API, token, or rate limit, and sender IPs never leave Cloudflare. The dashboard shows the required "IP Geolocation by DB-IP" credit.
+The sources table shows the country and network owner of each IP. Deploy downloads the free [DB-IP Lite](https://db-ip.com/db/lite.php) country and ASN databases (CC BY 4.0, refreshed monthly, cached in `.cache/dbip/`) into the dashboard's static assets, and the worker looks IPs up locally — no external API, token, or rate limit, and sender IPs never leave Cloudflare. The dashboard shows the required "IP Geolocation by DB-IP" credit.
+
+## Analyzer
+
+The **Analyzer** page (`#/analyzer/<domain>`, or choose a domain at `#/analyzer`) shows the SPF alignment of one domain and checks its DNS records. DMARC counts SPF only when it passes for a domain aligned with the From domain. The page shows a green **SPF aligned** card and one card for each issue, with its message count and what to do. Together, the cards cover all messages. Click a card to see its source IPs. For each source IP, the table shows the Return-Path domain and the DKIM signatures (signing domain and selector), with a red outline on the ones that do not align. The issues are:
+
+- **Return-Path on another domain**: SPF passed for the sender's own bounce domain (for example a mailing service), and DKIM aligns, so DMARC passes. A custom bounce domain under your domain aligns SPF too.
+- **IP not in your SPF**: the Return-Path is your domain, but your SPF record does not authorize the sending IP.
+- **Another domain, SPF failed**: typical for forwarded mail. SPF cannot survive forwarding, so DKIM must carry DMARC.
+- **Another domain, no DKIM: fails DMARC**: SPF passed only for an unrelated domain and DKIM does not align. This is typical for spoofing.
+
+The reasons come from each report's `<auth_results>`, which the worker stores since 2.5.0. Reports received before that have no `<auth_results>`: the page counts their mail under **No SPF details yet** and does not guess a reason. New reports fill this in.
+
+Under the issue cards, the page shows how DMARC checks mail from the largest source of an issue, step by step: Return-Path, SPF, SPF alignment, DKIM alignment, DMARC. The step that fails has the color of the issue. Click a card to see the steps for that issue.
+
+**DNS record checks** test the format of the domain's records:
+
+- **DMARC**: one record that starts with `v=DMARC1`, valid `p`, `sp`, `adkim`, `aspf` and `pct` values, `rua`/`ruf` addresses as `mailto:` URIs, no duplicate or unknown tags. `p=none` gives a warning. A subdomain without a record uses the record of its organizational domain.
+- **SPF**: at most 10 DNS lookups, one record, no `+all`, an `all` term at the end, no `ptr`.
+- **DKIM**: for each selector that the reports show for the domain, one key record with valid `v`, `k` and base64 `p`; warnings for a revoked key, an RSA key shorter than 2048 bits, and `t=y`.
+
+Your browser fetches the records from Cloudflare DNS over HTTPS (`cloudflare-dns.com`) and caches them for their DNS TTL. Only domain names are sent; source IPs never leave the browser. The SPF results come from the reports. Your record is checked against an **IP not in your SPF record** source only to show if your record includes the IP now, for example after you added a service.
+
+## Reports that could not be read
+
+When a report email cannot be read (a broken email, attachment, or report XML), an **Report errors** tab and a warning on the overview appear. The tab shows the sender, the file, and the error. You can copy or download the report XML, or download an attachment that could not be unpacked. If the report looks valid, please [open an issue](https://github.com/richardevs/dmarc-dashboard-kit/issues). Dismiss a failure to delete it and its stored content.
+
+The worker stores at most 50 failures per day, with at most 256 KB of content each. Emails without an attachment and reports for domains that are not authorized are only logged, because anyone can send mail to the receiving address.
 
 ## Receiving on a subdomain
 
@@ -215,11 +242,13 @@ The dashboard dev server (Vite) runs separately during development. In productio
 ├── dashboard/              # Svelte SPA
 │   └── src/
 │       ├── App.svelte
-│       ├── components/     # SummaryCards, Charts, Tables
-│       └── lib/api.ts      # API client
+│       ├── components/     # SummaryCards, Charts, Tables, SpfAnalyzer
+│       └── lib/            # api.ts (API client), spf.ts (SPF over DoH), spf-analysis.ts
 ├── migrations/
 │   ├── 0001_init.sql       # D1 schema (reports + record_rows tables)
-│   └── 0002_record_rows_unique.sql  # unique index on record_rows
+│   ├── 0002_record_rows_unique.sql  # unique index on record_rows
+│   ├── 0003_auth_results.sql        # per-mechanism SPF/DKIM results
+│   └── 0004_ingest_errors.sql       # report emails that could not be read
 ├── profiles/example.json   # Example profile for reference (real profiles are created by --setup and gitignored)
 ├── cloudflare.config.ts    # Worker config (reads the selected profile)
 ├── wrangler.config.ts      # Build settings (dashboard assets directory)

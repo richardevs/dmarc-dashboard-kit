@@ -4,6 +4,24 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [2.5.0-rc.1] - 2026-11-06
+
+### Changed
+- The overview shows **Delivered** and **Quarantined or rejected** instead of **Pass** and **Fail**. These numbers show what the receivers did with the mail (the DMARC disposition), not the DMARC result. Before, mail that failed DMARC under `p=none` showed as **Pass**. The sources table uses short column headers: **Total**, **Delivered** and **Blocked** (quarantined or rejected).
+- The **Delivered** card has no "Healthy" or "Below 90% threshold" mark. Under `p=quarantine` or `p=reject`, blocked spoofing lowers the delivered share, so a low share is not always a problem.
+- The domain table is now **Alignment by domain**, with **SPF aligned** and **DKIM aligned** columns. Before, the columns were **SPF Pass** and **DKIM Pass**, but they always showed alignment.
+- The sources table always shows the country and network owner of each IP. Before, you had to click **Show Details**. The lookup uses the local DB-IP databases, so no data goes to an external service. The button is now **Show blocked details**: it replaces **Delivered** and **Delivered %** with **SPF misaligned** and **DKIM misaligned**. These counts include delivered messages. A count above 0 is red (green for **Delivered**), and 0 is grey.
+- The dashboard text uses Simplified Technical English and the same word for the same thing everywhere.
+
+### Added
+- The dashboard has a new **Analyzer** page for each domain (`#/analyzer/<domain>`). It shows why SPF does not align for each source: the Return-Path is on another domain, the IP is not in your SPF record, SPF failed on another domain (forwarding), or SPF passed only for an unrelated domain without DKIM (spoofing). A green **SPF aligned** card and one card for each issue show the message counts and a short explanation of what to do. Together, the cards cover all messages. Click a card to see only its source IPs. For each source IP, the table shows the Return-Path domain and the DKIM signatures (signing domain and selector), and marks the ones that do not align. Under the cards, the page shows how DMARC checks mail from the largest source of the issue, step by step, and marks the step that fails. Below the source IPs, **DNS record checks** test the format of the DMARC record, the SPF records (including the limit of 10 DNS lookups) and the DKIM keys of the selectors in the reports.
+- The worker stores the per-mechanism SPF and DKIM results of each report (`<auth_results>`) in a new `auth_results` table. Only reports received after the upgrade have them. The Analyzer shows the mail of older reports as **No SPF details yet** and does not guess a reason.
+- The browser fetches SPF records from Cloudflare DNS over HTTPS and caches them for their DNS TTL. Only domain names are sent; source IPs never leave the browser. The SPF results come from the reports. For an **IP not in your SPF record** source, the page also shows if your record includes the IP now.
+- `deploy.sh --migrate-from` also copies the `auth_results` table.
+- The reports section shows a **Reporters** list by default: each organization that sends reports, its number of reports, when its last report arrived, and that report's ID. It covers all time, so a reporter that stops sending stays visible with an old date. **All reports** shows the full list as before, and the section no longer collapses.
+- The **SPF aligned** values in the overview link to the Analyzer of that domain.
+- A new **Report errors** tab lists the report emails that the worker could not read (broken email, attachment, or report XML), with the sender, the file, and the error. It shows the report XML, so you can copy or download it for a bug report. An attachment that could not be unpacked can be downloaded as received. Dismiss a failure to delete it. The tab and a warning on the overview appear only while failures exist. The worker records at most 50 failures per day in a new `ingest_errors` table, with at most 256 KB of content each.
+
 ## [2.4.1] - 2026-11-03
 
 ### Fixed
@@ -122,7 +140,8 @@ Initial release: self-hosted DMARC report analyzer on Cloudflare (Email Routing 
 - Timezone-aware date grouping and report ID precision.
 - Idempotent `_report._dmarc` and Access policy updates.
 
-[Unreleased]: https://github.com/richardevs/dmarc-dashboard-kit/compare/v2.4.1...HEAD
+[Unreleased]: https://github.com/richardevs/dmarc-dashboard-kit/compare/v2.5.0-rc.1...HEAD
+[2.5.0-rc.1]: https://github.com/richardevs/dmarc-dashboard-kit/compare/v2.4.1...v2.5.0-rc.1
 [2.4.1]: https://github.com/richardevs/dmarc-dashboard-kit/compare/v2.4.0...v2.4.1
 [2.4.0]: https://github.com/richardevs/dmarc-dashboard-kit/compare/v2.3.0...v2.4.0
 [2.3.0]: https://github.com/richardevs/dmarc-dashboard-kit/compare/v2.2.0...v2.3.0
